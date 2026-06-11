@@ -16,6 +16,7 @@ It alerts you via **Desktop Notifications** and **Telegram Messages** the second
 7. [Step 4: Running the Trackers](#step-4-running-the-trackers)
 8. [Data Storage & Debugging](#data-storage--debugging)
 9. [Anti-Detection Mechanisms](#anti-detection-mechanisms)
+10. [REST API Server](#rest-api-server)
 
 ---
 
@@ -198,3 +199,40 @@ Quick commerce sites employ anti-bot systems. To prevent blocks, the trackers au
 1. **Dynamic Jitter**: Introduces random sleep times between individual product pages (3-6 seconds) and randomized offsets (up to 1 minute) on the check interval.
 2. **Real Browser User Agents**: Configures headers to mimic standard Google Chrome on Windows.
 3. **Session Reuse**: Avoids loading pages raw; instead, it uses the saved storage state from your location setup, which mimics a logged-in/active session.
+
+---
+
+## REST API Server
+
+If you prefer to operate the trackers programmatically, query statuses in real time, or integrate them into a dashboard, you can host the built-in **FastAPI** web server.
+
+### 1. Launch the API Server
+Ensure `fastapi` and `uvicorn` are installed, then run:
+```bash
+python api.py
+```
+This starts the web server on `http://localhost:8000`.
+
+### 2. Interactive Swagger UI Documentation
+Open your browser and navigate to:
+```
+http://localhost:8000/docs
+```
+This provides a complete interactive sandbox where you can test all endpoints, check parameters, and view response schemas.
+
+### 3. Key Endpoints Exposing Features
+* **Headed Geolocation Setup**:
+  * `POST /setup/{provider}`: Spawns a visible browser window on the host machine to select your delivery location without blocking stdin.
+  * `POST /setup/{provider}/save`: Saves the state context, closes the browser, and completes setup.
+* **Search Marketplace**:
+  * `GET /search/{provider}?q=query`: Performs a location-aware search and returns a list of items with their names, details, URLs, and current stock status.
+* **Direct Stock Check**:
+  * `GET /stock/{provider}?url=url`: Scrapes a product page immediately and returns its live stock status.
+* **Product & Keyword Management**:
+  * `GET` / `POST` / `DELETE` `/products/{provider}`: Retrieve, add, or remove items in the configuration list.
+  * `GET` / `POST` `/keywords/{provider}`: Read and set keywords lists.
+* **Active Background Daemon Controls**:
+  * `POST /tracker/{provider}/start`: Starts a background thread running the scraping checks and keyword scans periodically.
+  * `POST /tracker/{provider}/stop`: Triggers a graceful shutdown event to terminate the daemon thread.
+  * `GET /tracker/{provider}/status`: Tells you if the thread is alive and when it last ran.
+
