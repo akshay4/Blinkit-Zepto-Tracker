@@ -1,0 +1,72 @@
+{
+  "check_interval_minutes": 10,
+  "desktop_notifications": true,
+  "telegram": {
+    "enabled": false,
+    "bot_token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID"
+  },
+  "tracked_keywords": [],
+  "products": [
+    {
+      "name": "Hot Wheels High-Tail Chaser Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-high-tail-chaser-die-cast-car/prid/771923"
+    },
+    {
+      "name": "Hot Wheels Barbie Dream Camper / Roulotte Die Cast Car (1 pc | Rs. 167)",
+      "url": "https://blinkit.com/prn/hot-wheels-barbie-dream-camper-roulotte-die-cast-car/prid/772305"
+    },
+    {
+      "name": "Hot Wheels Pagani Zonda Cinque Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-pagani-zonda-cinque-die-cast-car/prid/772661"
+    },
+    {
+      "name": "Hot Wheels 8 Crate Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-8-crate-die-cast-car/prid/771880"
+    },
+    {
+      "name": "Hot Wheels Cadillac Celestiq Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-cadillac-celestiq-die-cast-car/prid/774407"
+    },
+    {
+      "name": "Hot Wheels 59 Chevy Impala Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-59-chevy-impala-die-cast-car/prid/771905"
+    },
+    {
+      "name": "Hot Wheels Honda Odyssey Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-honda-odyssey-die-cast-car/prid/771911"
+    },
+    {
+      "name": "Hot Wheels Twin Tags Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-twin-tags-die-cast-car/prid/774412"
+    },
+    {
+      "name": "34% OFF (1 set | Rs. 2,599)",
+      "url": "https://blinkit.com/prn/34-off/prid/445097"
+    },
+    {
+      "name": "24% OFF (1 pc | Rs. 2,199)",
+      "url": "https://blinkit.com/prn/24-off/prid/552809"
+    },
+    {
+      "name": "Hot Wheels El Segundo Rallye Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-el-segundo-rallye-die-cast-car/prid/771910"
+    },
+    {
+      "name": "Hot Wheels Standard Mario Kart Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-standard-mario-kart-die-cast-car/prid/771935"
+    },
+    {
+      "name": "Hot Wheels 33' Ford Lo Boy Die Cast Car (1 pc | Rs. 179)",
+      "url": "https://blinkit.com/prn/hot-wheels-33-ford-lo-boy-die-cast-car/prid/772251"
+    },
+    {
+      "name": "Hot Wheels Tooned Purple Passion Die Cast Car (1 pc | Rs. 167)",
+      "url": "https://blinkit.com/prn/hot-wheels-tooned-purple-passion-die-cast-car/prid/771931"
+    },
+    {
+      "name": "24% OFF (1 set | Rs. 2,199)",
+      "url": "https://blinkit.com/prn/24-off/prid/704937"
+    }
+  ]
+}
