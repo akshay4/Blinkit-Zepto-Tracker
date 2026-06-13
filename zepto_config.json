@@ -6,59 +6,6 @@
     "bot_token": "YOUR_BOT_TOKEN",
     "chat_id": "YOUR_CHAT_ID"
   },
-  "tracked_keywords": ["Hot Wheels"],
-  "products": [
-    {
-      "name": "Hot Wheels Worldwide Basic Car HW Standard Kart Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-car-hw-standard-kart-toy-for-kids-collectors/pvid/f572489c-fbd0-4180-bd5a-ddc3e6d930c5"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Pagani Zonda Cinque Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-pagani-zonda-cinque-car-toy-for-kids-collectors/pvid/21b08e84-93e6-4461-ac96-c04b641ab35b"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW El Segundo Rallye Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-el-segundo-rallye-car-toy-for-kids-collectors/pvid/08044018-ea6c-4ee3-ab6b-5e8f33d97814"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Vairstrike Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-vairstrike-car-toy-for-kids-collectors/pvid/89c8b92c-6306-48f9-a391-c17dccab846d"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Bouncen Bass Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-bouncen-bass-car-toy-for-kids-collectors/pvid/ec485fab-c45c-44bf-8bbc-9d036c9a07dc"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Fiat Beast of Turin Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-fiat-beast-of-turin-car-toy-for-kids-collectors/pvid/4dbf668d-9a4c-4d78-82a9-e5e6c1d13eda"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW33 Ford Lo Boy Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw33-ford-lo-boy-car-toy-for-kids-collectors/pvid/b352da80-e6c1-46f0-9304-625dd2666c93"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW8 Crate Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw8-crate-car-toy-for-kids-collectors/pvid/78b88476-2959-4217-ab1b-2f46f08d6be0"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Morgan Super 3 Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-morgan-super-3-car-toy-for-kids-collectors/pvid/751c646d-fc03-4d40-9b46-34f21172c29b"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Classic TV Series Batmobile Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-classic-tv-series-batmobile-car-toy-for-kids-collectors/pvid/f57cc0b7-bd83-4d5c-8b7c-2d57aeb69595"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Flippin Fast Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-flippin-fast-car-toy-for-kids-collectors/pvid/9a24df59-f6c7-45e5-97f6-42106b6b7ad0"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Instant Boost Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-instant-boost-car-toy-for-kids-collectors/pvid/50637a1b-2685-4dbc-9354-48d5f750b496"
-    },
-    {
-      "name": "Hot Wheels Worldwide Basic HW Deora Tooned Car Toy for Kids & Collectors (1 pc | Rs. 179)",
-      "url": "https://www.zepto.com/pn/hot-wheels-worldwide-basic-hw-deora-tooned-car-toy-for-kids-collectors/pvid/d9862f1b-d2bf-4eff-a5e0-6a8c9e53e320"
-    }
-  ]
+  "tracked_keywords": [],
+  "products": []
 }

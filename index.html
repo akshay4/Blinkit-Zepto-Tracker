@@ -1,0 +1,1636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Blinkit & Zepto Stock Tracker Dashboard 🛒</title>
+  <!-- Modern Premium Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons (lightweight via CDN) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    :root {
+      color-scheme: light;
+      --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      
+      /* Brand and status colors */
+      --blinkit-yellow: #ca8a04; /* Darker amber-yellow for light theme readability */
+      --zepto-purple: #7c3aed; /* Elegant violet purple */
+      --accent-glow: rgba(124, 58, 237, 0.08);
+      --instock-green: #10b981;
+      --outstock-red: #ef4444;
+      --unknown-yellow: #f59e0b;
+      
+      --font-family: 'Outfit', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-family);
+    }
+
+    body {
+      background: var(--bg-gradient);
+      background-attachment: fixed;
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding-bottom: 3rem;
+    }
+
+    /* Core container */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    /* Header styling */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1.5rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      background: linear-gradient(135deg, #fef08a, #c084fc);
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    .brand-title h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      background: linear-gradient(to right, #0f172a, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-title p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .global-controls {
+      display: flex;
+      gap: 1rem;
+    }
+
+    /* Button styles */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+    }
+
+    .btn-secondary {
+      background: #f1f5f9;
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+    }
+
+    .btn-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
+    }
+
+    .btn-sm {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.8rem;
+    }
+
+    /* Overview Daemon Cards */
+    .daemon-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .daemon-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 20px 0 rgba(15, 23, 42, 0.05);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .daemon-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+    }
+
+    .daemon-card.blinkit::before {
+      background: #eab308;
+    }
+
+    .daemon-card.zepto::before {
+      background: var(--zepto-purple);
+    }
+
+    .daemon-card:hover {
+      border-color: #cbd5e1;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px 0 rgba(15, 23, 42, 0.08);
+    }
+
+    .daemon-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .provider-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-dot.active {
+      background: var(--instock-green);
+      box-shadow: 0 0 8px var(--instock-green);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.inactive {
+      background: var(--outstock-red);
+      box-shadow: 0 0 8px var(--outstock-red);
+    }
+
+    .daemon-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+    }
+
+    .stat-box {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-val {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .daemon-actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    /* Main Dashboard Layout */
+    .dashboard-body {
+      display: grid;
+      grid-template-columns: 1fr 350px;
+      gap: 2rem;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Navigation Tabs */
+    .tabs-header {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 0.5rem;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1rem;
+      font-weight: 600;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      position: relative;
+      transition: color 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .tab-btn.active {
+      color: var(--text-main);
+    }
+
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -0.6rem;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: var(--zepto-purple);
+      border-radius: 2px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Cards container */
+    .content-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 20px 0 rgba(15, 23, 42, 0.05);
+      margin-bottom: 2rem;
+    }
+
+    .panel-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Product Grid List */
+    .products-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .product-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      transition: all 0.2s;
+    }
+
+    .product-row:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+
+    .product-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex: 1;
+    }
+
+    .store-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .store-badge.blinkit {
+      background: rgba(234, 179, 8, 0.1);
+      color: var(--blinkit-yellow);
+      border: 1px solid rgba(234, 179, 8, 0.25);
+    }
+
+    .store-badge.zepto {
+      background: rgba(124, 58, 237, 0.1);
+      color: var(--zepto-purple);
+      border: 1px solid rgba(124, 58, 237, 0.25);
+    }
+
+    .product-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .product-title-link {
+      color: var(--text-main);
+      text-decoration: none;
+      font-weight: 550;
+      font-size: 0.95rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      transition: color 0.2s;
+    }
+
+    .product-title-link:hover {
+      text-decoration: underline;
+      color: var(--zepto-purple);
+    }
+
+    .product-url-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      max-width: 400px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .product-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .status-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .status-badge.IN_STOCK {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--instock-green);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .status-badge.OUT_OF_STOCK {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--outstock-red);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+
+    .status-badge.UNKNOWN {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--unknown-yellow);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.4rem;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .icon-btn:hover {
+      background: #e2e8f0;
+      color: var(--text-main);
+    }
+
+    .icon-btn.danger-hover:hover {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--outstock-red);
+    }
+
+    /* History / Alert logs feed */
+    .history-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .history-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+      font-size: 0.85rem;
+    }
+
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .history-content {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    .history-content span.highlight {
+      font-weight: 700;
+    }
+
+    /* Search Tab */
+    .search-bar-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1;
+    }
+
+    .form-group.small {
+      flex: 0 0 160px;
+    }
+
+    .form-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-select, .form-input {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      color: var(--text-main);
+      padding: 0.65rem 0.85rem;
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .form-select:focus, .form-input:focus {
+      border-color: var(--zepto-purple);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+    }
+
+    /* Search results grid */
+    .search-results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .search-item-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 160px;
+      transition: all 0.2s;
+    }
+
+    .search-item-card:hover {
+      border-color: #cbd5e1;
+      background: #f1f5f9;
+    }
+
+    .search-item-body h4 {
+      font-size: 0.95rem;
+      margin-bottom: 0.35rem;
+      line-height: 1.3;
+    }
+
+    .search-item-body p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    /* Keyword management */
+    .keyword-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .keyword-section {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .keyword-box {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 1rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .keyword-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      min-height: 50px;
+      align-content: flex-start;
+    }
+
+    .keyword-tag {
+      background: #e2e8f0;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--text-main);
+    }
+
+    .keyword-tag button {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    .keyword-tag button:hover {
+      color: var(--outstock-red);
+    }
+
+    .keyword-input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    /* Modal styling for headed location setup */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.3);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 2rem;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.1);
+      position: relative;
+      text-align: center;
+      transform: scale(0.9);
+      transition: transform 0.3s;
+    }
+
+    .modal-overlay.active .modal-card {
+      transform: scale(1);
+    }
+
+    .modal-icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(124, 58, 237, 0.1);
+      color: var(--zepto-purple);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem auto;
+      font-size: 1.75rem;
+    }
+
+    .modal-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .modal-body {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 1.75rem;
+    }
+
+    .modal-body ol {
+      text-align: left;
+      margin-left: 1.5rem;
+      margin-top: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    /* Pulse animation */
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+      }
+      70% {
+        box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+
+    /* Spinner */
+    .spinner {
+      animation: rotate 1.5s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes rotate {
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Toast notification */
+    .toast-container {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      z-index: 1000;
+    }
+
+    .toast {
+      background: #1e293b;
+      border-left: 4px solid var(--zepto-purple);
+      color: white;
+      padding: 1rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.15);
+      transform: translateX(120%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .toast.active {
+      transform: translateX(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">🛒</div>
+        <div class="brand-title">
+          <h1>Stock Monitoring Dashboard</h1>
+          <p>Location-aware tracking for Blinkit & Zepto dark stores</p>
+        </div>
+      </div>
+      <div class="global-controls">
+        <button class="btn btn-primary" onclick="triggerAllDaemons('start')">
+          <i data-lucide="play"></i> Start All Trackers
+        </button>
+        <button class="btn btn-danger" onclick="triggerAllDaemons('stop')">
+          <i data-lucide="square"></i> Stop All Trackers
+        </button>
+        <button class="btn btn-secondary" onclick="resetAllData()" style="border-color: var(--outstock-red); color: var(--outstock-red);">
+          <i data-lucide="rotate-ccw"></i> Reset & Start Fresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Overview Daemon Status Widgets -->
+    <div class="daemon-grid">
+      <!-- Blinkit Daemon Status -->
+      <div class="daemon-card blinkit">
+        <div class="daemon-header">
+          <div class="provider-title">
+            <span class="status-dot inactive" id="blinkit-dot"></span>
+            Blinkit Tracker
+          </div>
+          <span class="status-badge UNKNOWN" id="blinkit-status-badge">Checking...</span>
+        </div>
+        <div class="daemon-stats">
+          <div class="stat-box">
+            <span class="stat-label">Products</span>
+            <span class="stat-val" id="blinkit-product-count">-</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Interval</span>
+            <span class="stat-val" id="blinkit-interval-val">-</span>
+          </div>
+        </div>
+        <div class="daemon-actions">
+          <button class="btn btn-secondary btn-sm" id="blinkit-toggle-btn" onclick="toggleDaemon('blinkit')">
+            <i data-lucide="play" class="btn-icon"></i> <span class="btn-text">Start Monitor</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openLocationModal('blinkit')">
+            <i data-lucide="map-pin"></i> Location Setup
+          </button>
+        </div>
+      </div>
+
+      <!-- Zepto Daemon Status -->
+      <div class="daemon-card zepto">
+        <div class="daemon-header">
+          <div class="provider-title">
+            <span class="status-dot inactive" id="zepto-dot"></span>
+            Zepto Tracker
+          </div>
+          <span class="status-badge UNKNOWN" id="zepto-status-badge">Checking...</span>
+        </div>
+        <div class="daemon-stats">
+          <div class="stat-box">
+            <span class="stat-label">Products</span>
+            <span class="stat-val" id="zepto-product-count">-</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Interval</span>
+            <span class="stat-val" id="zepto-interval-val">-</span>
+          </div>
+        </div>
+        <div class="daemon-actions">
+          <button class="btn btn-secondary btn-sm" id="zepto-toggle-btn" onclick="toggleDaemon('zepto')">
+            <i data-lucide="play" class="btn-icon"></i> <span class="btn-text">Start Monitor</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openLocationModal('zepto')">
+            <i data-lucide="map-pin"></i> Location Setup
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Dashboard Section -->
+    <div class="dashboard-body">
+      <!-- Left Column: Operations -->
+      <div>
+        <div class="tabs-header">
+          <button class="tab-btn active" onclick="switchTab('tracked-tab')">Tracked Items</button>
+          <button class="tab-btn" onclick="switchTab('search-tab')">Search & Add Wizard</button>
+          <button class="tab-btn" onclick="switchTab('keywords-tab')">Keywords settings</button>
+        </div>
+
+        <!-- Tab 1: Tracked Products List -->
+        <div id="tracked-tab" class="tab-content active">
+          <!-- Blinkit Panel -->
+          <div class="content-panel">
+            <div class="panel-title">
+              <span>Tracked Products on Blinkit 💛</span>
+              <button class="btn btn-secondary btn-sm" onclick="loadTrackedProducts('blinkit')">
+                <i data-lucide="refresh-cw" class="icon-sm"></i>
+              </button>
+            </div>
+            <div class="products-list" id="blinkit-products-list">
+              <!-- Dynamically populated -->
+              <div style="text-align: center; color: var(--text-muted); padding: 1rem;">Loading products...</div>
+            </div>
+          </div>
+
+          <!-- Zepto Panel -->
+          <div class="content-panel">
+            <div class="panel-title">
+              <span>Tracked Products on Zepto 💜</span>
+              <button class="btn btn-secondary btn-sm" onclick="loadTrackedProducts('zepto')">
+                <i data-lucide="refresh-cw" class="icon-sm"></i>
+              </button>
+            </div>
+            <div class="products-list" id="zepto-products-list">
+              <!-- Dynamically populated -->
+              <div style="text-align: center; color: var(--text-muted); padding: 1rem;">Loading products...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Live Search & Add -->
+        <div id="search-tab" class="tab-content">
+          <div class="content-panel">
+            <div class="panel-title">Live Marketplace Search</div>
+            <div class="search-bar-row">
+              <div class="form-group small">
+                <label class="form-label">Store</label>
+                <select class="form-select" id="search-provider">
+                  <option value="blinkit">Blinkit</option>
+                  <option value="zepto">Zepto</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Query Search term</label>
+                <input type="text" class="form-input" id="search-query" placeholder="e.g. Hot Wheels, milk, organic apples..." onkeydown="if(event.key === 'Enter') executeSearch()">
+              </div>
+              <div class="form-group" style="flex: 0 0 100px; justify-content: flex-end;">
+                <button class="btn btn-primary" style="width:100%" onclick="executeSearch()" id="search-btn">
+                  <i data-lucide="search"></i> Search
+                </button>
+              </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="search-results-container" style="display:none;">
+              <h3>Search Results (<span id="results-count">0</span> items found)</h3>
+              <div class="search-results-grid" id="search-results-list">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+
+            <div id="search-loading" style="display:none; text-align:center; padding: 3rem; color:var(--text-muted);">
+              <i data-lucide="loader-2" class="spinner" style="width:32px; height:32px; margin-bottom:1rem;"></i>
+              <p>Performing real-time location-aware search. This takes a few seconds...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Keywords Manager -->
+        <div id="keywords-tab" class="tab-content">
+          <div class="content-panel">
+            <div class="panel-title">Automatic Background Keyword Monitoring</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+              The background tracker threads periodically search for these queries. If a new product is found that is not currently added to your product tracking configurations, you will receive notifications.
+            </p>
+            
+            <div class="keyword-section">
+              <!-- Blinkit Keywords -->
+              <div class="keyword-box">
+                <h3 style="font-size: 1rem; margin-bottom: 1rem;">Blinkit Keywords</h3>
+                <div class="keyword-list" id="blinkit-keyword-tags">
+                  <!-- Populated dynamically -->
+                </div>
+                <div class="keyword-input-row">
+                  <input type="text" class="form-input" id="blinkit-new-keyword" placeholder="Add keyword..." style="flex:1;">
+                  <button class="btn btn-secondary" onclick="addKeyword('blinkit')">Add</button>
+                </div>
+              </div>
+
+              <!-- Zepto Keywords -->
+              <div class="keyword-box">
+                <h3 style="font-size: 1rem; margin-bottom: 1rem;">Zepto Keywords</h3>
+                <div class="keyword-list" id="zepto-keyword-tags">
+                  <!-- Populated dynamically -->
+                </div>
+                <div class="keyword-input-row">
+                  <input type="text" class="form-input" id="zepto-new-keyword" placeholder="Add keyword..." style="flex:1;">
+                  <button class="btn btn-secondary" onclick="addKeyword('zepto')">Add</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Alert History -->
+      <div>
+        <div class="content-panel" style="position: sticky; top: 2rem;">
+          <div class="panel-title">
+            <span>Recent Alert History 🔔</span>
+            <button class="btn btn-secondary btn-sm" onclick="loadHistory()">
+              <i data-lucide="refresh-cw" class="icon-sm"></i>
+            </button>
+          </div>
+          <div class="history-feed" id="history-feed-list">
+            <!-- Dynamically populated -->
+            <div style="text-align: center; color: var(--text-muted); padding: 1rem;">No stock change events recorded yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Location Setup Modal -->
+  <div class="modal-overlay" id="location-modal">
+    <div class="modal-card">
+      <div class="modal-icon">
+        <i data-lucide="map-pin"></i>
+      </div>
+      <div class="modal-title">Headed Location Configurator</div>
+      <div class="modal-body">
+        <p>A visible chromium browser window has been requested for <strong id="modal-provider-name">-</strong>.</p>
+        <p style="margin-top:0.75rem;"><strong>Follow these steps:</strong></p>
+        <ol>
+          <li>A browser window will open on the host machine screen.</li>
+          <li>Set your delivery location to your exact tracking address.</li>
+          <li>Ensure page items load correctly.</li>
+          <li>Click the final save button below to capture authentication state.</li>
+        </ol>
+      </div>
+      <div style="display:flex; gap:1rem; justify-content:center;">
+        <button class="btn btn-primary" id="save-location-btn" onclick="saveLocationState()">
+          <i data-lucide="save"></i> Save & Save State Context
+        </button>
+        <button class="btn btn-secondary" onclick="closeLocationModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    // Global States
+    const activeProviderDaemons = { blinkit: false, zepto: false };
+    let productsCache = { blinkit: [], zepto: [] };
+    let currentActiveSetupProvider = null;
+
+    // Initial load
+    window.addEventListener('DOMContentLoaded', () => {
+      // Initialize Lucide Icons
+      lucide.createIcons();
+      
+      // Load all dynamic details
+      refreshAllStats();
+      loadHistory();
+      
+      // Auto-refresh states every 5 seconds
+      setInterval(() => {
+        pollDaemonStatuses();
+      }, 5000);
+      
+      // Auto-refresh history every 10 seconds
+      setInterval(() => {
+        loadHistory();
+      }, 10000);
+    });
+
+    // Helper: Show notification toast
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.style.borderLeftColor = type === 'success' ? 'var(--instock-green)' : 'var(--outstock-red)';
+      
+      let icon = type === 'success' ? 'check-circle' : 'alert-circle';
+      toast.innerHTML = `<i data-lucide="${icon}"></i> <span>${message}</span>`;
+      
+      container.appendChild(toast);
+      lucide.createIcons();
+      
+      // Trigger slide in
+      setTimeout(() => toast.classList.add('active'), 50);
+      
+      // Remove after 4 seconds
+      setTimeout(() => {
+        toast.classList.remove('active');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // Tab switcher
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      
+      // Find the button clicking this
+      event.currentTarget.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // Refresh all stats
+    function refreshAllStats() {
+      pollDaemonStatuses();
+      loadTrackedProducts('blinkit');
+      loadTrackedProducts('zepto');
+      loadKeywords('blinkit');
+      loadKeywords('zepto');
+    }
+
+    // Daemon Poll
+    async function pollDaemonStatuses() {
+      for (const provider of ['blinkit', 'zepto']) {
+        try {
+          const res = await fetch(`/tracker/${provider}/status`);
+          const data = await res.json();
+          updateDaemonUI(provider, data);
+        } catch (err) {
+          console.error(`Error fetching daemon status for ${provider}:`, err);
+        }
+      }
+    }
+
+    function updateDaemonUI(provider, status) {
+      const isRunning = status.is_running;
+      activeProviderDaemons[provider] = isRunning;
+      
+      const dot = document.getElementById(`${provider}-dot`);
+      const badge = document.getElementById(`${provider}-status-badge`);
+      const toggleBtn = document.getElementById(`${provider}-toggle-btn`);
+      const countEl = document.getElementById(`${provider}-product-count`);
+      const intervalEl = document.getElementById(`${provider}-interval-val`);
+      
+      if (isRunning) {
+        dot.className = 'status-dot active';
+        badge.className = 'status-badge IN_STOCK';
+        badge.textContent = 'MONITORING';
+        toggleBtn.className = 'btn btn-danger btn-sm';
+        toggleBtn.querySelector('.btn-icon').setAttribute('data-lucide', 'square');
+        toggleBtn.querySelector('.btn-text').textContent = 'Stop Tracker';
+      } else {
+        dot.className = 'status-dot inactive';
+        badge.className = 'status-badge OUT_OF_STOCK';
+        badge.textContent = 'STOPPED';
+        toggleBtn.className = 'btn btn-primary btn-sm';
+        toggleBtn.querySelector('.btn-icon').setAttribute('data-lucide', 'play');
+        toggleBtn.querySelector('.btn-text').textContent = 'Start Tracker';
+      }
+      
+      countEl.textContent = status.tracked_products_count;
+      intervalEl.textContent = `${status.check_interval_minutes}m`;
+      
+      lucide.createIcons();
+    }
+
+    // Toggle Daemon Status
+    async function toggleDaemon(provider) {
+      const currentlyRunning = activeProviderDaemons[provider];
+      const endpoint = currentlyRunning ? 'stop' : 'start';
+      
+      try {
+        const res = await fetch(`/tracker/${provider}/${endpoint}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(`${provider.toUpperCase()} monitoring daemon ${currentlyRunning ? 'stopped' : 'started'}!`);
+          pollDaemonStatuses();
+        } else {
+          showToast(data.detail || `Failed to ${endpoint} daemon`, 'error');
+        }
+      } catch (err) {
+        showToast(`API network error during ${endpoint}`, 'error');
+      }
+    }
+
+    // Start/Stop all
+    async function triggerAllDaemons(action) {
+      try {
+        const res = await fetch(`/tracker/all/${action}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(`All trackers signaled to ${action}!`);
+          pollDaemonStatuses();
+        } else {
+          showToast(`Failed to trigger all: ${data.detail || ''}`, 'error');
+        }
+      } catch (err) {
+        showToast('API network error trigger-all', 'error');
+      }
+    }
+
+    // Reset all application data and start fresh
+    async function resetAllData() {
+      if (!confirm("⚠️ WARNING: This will stop all trackers, clear your database history, delete saved geolocations, and reset all configuration products and keywords back to defaults.\n\nAre you sure you want to completely start fresh?")) {
+        return;
+      }
+      
+      try {
+        const res = await fetch('/reset', { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast('Application reset successfully! Page will reload.', 'success');
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } else {
+          showToast(data.message || 'Reset failed', 'error');
+        }
+      } catch (err) {
+        showToast('API network error during reset', 'error');
+      }
+    }
+
+    // Load configuration products
+    async function loadTrackedProducts(provider) {
+      try {
+        const res = await fetch(`/products/${provider}`);
+        const data = await res.json();
+        productsCache[provider] = data.products;
+        
+        const container = document.getElementById(`${provider}-products-list`);
+        container.innerHTML = '';
+        
+        if (data.products.length === 0) {
+          container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No tracked products. Use Search or paste URL to add.</div>`;
+          return;
+        }
+
+        // We will fetch their states dynamically from the status history if we want,
+        // or check them one by one. But let's build the list immediately.
+        data.products.forEach(p => {
+          const row = document.createElement('div');
+          row.className = 'product-row';
+          
+          // Determine generic UI element
+          row.innerHTML = `
+            <div class="product-info">
+              <span class="store-badge ${provider}">${provider}</span>
+              <div class="product-details">
+                <a href="${p.url}" target="_blank" class="product-title-link">
+                  ${p.name} <i data-lucide="external-link" style="width:12px; height:12px;"></i>
+                </a>
+                <span class="product-url-sub">${p.url}</span>
+              </div>
+            </div>
+            <div class="product-actions">
+              <span class="status-badge UNKNOWN" data-url="${p.url}">UNKNOWN</span>
+              <button class="icon-btn" onclick="checkLiveStock('${provider}', '${encodeURIComponent(p.url)}')" title="Check stock live now">
+                <i data-lucide="refresh-cw" style="width:16px; height:16px;"></i>
+              </button>
+              <button class="icon-btn danger-hover" onclick="removeProduct('${provider}', '${encodeURIComponent(p.url)}')" title="Delete from tracking">
+                <i data-lucide="trash-2" style="width:16px; height:16px;"></i>
+              </button>
+            </div>
+          `;
+          container.appendChild(row);
+        });
+        
+        lucide.createIcons();
+        updateRowStatusBadges(provider);
+      } catch (err) {
+        console.error(`Error loading products for ${provider}:`, err);
+      }
+    }
+
+    // Update row status badges from local tracker.db values indirectly or set custom status
+    async function updateRowStatusBadges(provider) {
+      try {
+        const res = await fetch('/history');
+        const data = await res.json();
+        
+        // Map history to get the latest status for each URL
+        const latestStates = {};
+        data.history.forEach(log => {
+          if (!latestStates[log.url]) {
+            latestStates[log.url] = log.status;
+          }
+        });
+        
+        // Find badges in DOM and replace status
+        document.querySelectorAll(`.products-list#${provider}-products-list .status-badge`).forEach(badge => {
+          const url = badge.getAttribute('data-url');
+          if (latestStates[url]) {
+            const status = latestStates[url];
+            badge.className = `status-badge ${status}`;
+            badge.textContent = status.replace('_', ' ');
+          }
+        });
+      } catch (err) {
+        console.error('Error updating status badges:', err);
+      }
+    }
+
+    // Live single stock check
+    async function checkLiveStock(provider, encodedUrl) {
+      const url = decodeURIComponent(encodedUrl);
+      const rowBadge = document.querySelector(`.products-list .status-badge[data-url="${url}"]`);
+      if (rowBadge) {
+        rowBadge.className = 'status-badge UNKNOWN';
+        rowBadge.textContent = 'CHECKING...';
+      }
+      
+      showToast('Launching live headless scraper check...');
+      
+      try {
+        const res = await fetch(`/stock/${provider}?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(`Live check complete: ${data.status}`);
+          loadTrackedProducts(provider);
+          loadHistory();
+        } else {
+          showToast(data.detail || 'Failed live stock scrape', 'error');
+          if (rowBadge) {
+            rowBadge.textContent = 'ERROR';
+          }
+        }
+      } catch (err) {
+        showToast('Network error during live check', 'error');
+      }
+    }
+
+    // Remove product
+    async function removeProduct(provider, encodedUrl) {
+      const url = decodeURIComponent(encodedUrl);
+      if (!confirm(`Are you sure you want to stop tracking this product?`)) {
+        return;
+      }
+      
+      try {
+        const res = await fetch(`/products/${provider}?url=${encodeURIComponent(url)}`, { method: 'DELETE' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast('Successfully removed product tracking');
+          loadTrackedProducts(provider);
+          pollDaemonStatuses();
+        } else {
+          showToast(data.detail || 'Failed to remove product', 'error');
+        }
+      } catch (err) {
+        showToast('Network error removing product', 'error');
+      }
+    }
+
+    // Load recent history logs
+    async function loadHistory() {
+      try {
+        const res = await fetch('/history');
+        const data = await res.json();
+        
+        const container = document.getElementById('history-feed-list');
+        container.innerHTML = '';
+        
+        if (data.history.length === 0) {
+          container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No stock status change transitions logged.</div>`;
+          return;
+        }
+
+        // We want to combine Blinkit and Zepto products caches to map names
+        const allProducts = [...productsCache.blinkit, ...productsCache.zepto];
+        const urlToNameMap = {};
+        allProducts.forEach(p => { urlToNameMap[p.url] = p.name; });
+
+        // Display top 15 logs
+        data.history.slice(0, 15).forEach(log => {
+          const card = document.createElement('div');
+          card.className = 'history-card';
+          
+          const timeString = new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const dateString = new Date(log.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' });
+          
+          const productName = urlToNameMap[log.url] || log.url;
+          const statusStyle = log.status === 'IN_STOCK' ? 'var(--instock-green)' : (log.status === 'OUT_OF_STOCK' ? 'var(--outstock-red)' : 'var(--unknown-yellow)');
+          const isBlinkit = log.url.includes('blinkit.com');
+          
+          card.innerHTML = `
+            <div class="history-header">
+              <span>${isBlinkit ? 'Blinkit 💛' : 'Zepto 💜'}</span>
+              <span>${dateString} at ${timeString}</span>
+            </div>
+            <div class="history-content">
+              <span class="highlight">${productName}</span> is now 
+              <span style="color:${statusStyle}; font-weight:700;">${log.status.replace('_', ' ')}</span>
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        console.error('Error loading history:', err);
+      }
+    }
+
+    // Execute product search
+    async function executeSearch() {
+      const provider = document.getElementById('search-provider').value;
+      const query = document.getElementById('search-query').value.trim();
+      
+      if (!query) {
+        showToast('Please enter a search query', 'error');
+        return;
+      }
+      
+      const searchBtn = document.getElementById('search-btn');
+      const loadingEl = document.getElementById('search-loading');
+      const resultsContainer = document.getElementById('search-results-container');
+      const resultsList = document.getElementById('search-results-list');
+      
+      searchBtn.disabled = true;
+      loadingEl.style.display = 'block';
+      resultsContainer.style.display = 'none';
+      resultsList.innerHTML = '';
+      
+      try {
+        const res = await fetch(`/search/${provider}?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        
+        loadingEl.style.display = 'none';
+        searchBtn.disabled = false;
+        
+        if (res.ok) {
+          document.getElementById('results-count').textContent = data.count;
+          resultsContainer.style.display = 'block';
+          
+          if (data.results.length === 0) {
+            resultsList.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 2rem; color:var(--text-muted)">No items found. Make sure location setup is complete.</div>`;
+            return;
+          }
+          
+          data.results.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'search-item-card';
+            
+            const isAlreadyTracked = productsCache[provider].some(p => p.url === item.url);
+            const statusStyle = item.status === 'IN_STOCK' ? 'IN_STOCK' : 'OUT_OF_STOCK';
+            
+            card.innerHTML = `
+              <div class="search-item-body">
+                <h4>${item.name}</h4>
+                <p>${item.details || 'No detail metadata'}</p>
+                <div>
+                  <span class="status-badge ${statusStyle}">${item.status}</span>
+                </div>
+              </div>
+              <div style="margin-top: 1rem;">
+                ${isAlreadyTracked ? 
+                  `<button class="btn btn-secondary btn-sm" style="width:100%" disabled>✓ Tracked</button>` :
+                  `<button class="btn btn-primary btn-sm" style="width:100%" onclick="addProductToTrack('${provider}', '${encodeURIComponent(item.name)}', '${encodeURIComponent(item.url)}', '${item.status}')">+ Track Item</button>`
+                }
+              </div>
+            `;
+            resultsList.appendChild(card);
+          });
+        } else {
+          showToast(data.detail || 'Search failed', 'error');
+        }
+      } catch (err) {
+        loadingEl.style.display = 'none';
+        searchBtn.disabled = false;
+        showToast('Search request connection failed', 'error');
+      }
+    }
+
+    // Add search result item to config
+    async function addProductToTrack(provider, encodedName, encodedUrl, status) {
+      const name = decodeURIComponent(encodedName);
+      const url = decodeURIComponent(encodedUrl);
+      
+      try {
+        const res = await fetch(`/products/${provider}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, url, status })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(`Successfully added ${name} to tracking!`);
+          loadTrackedProducts(provider);
+          pollDaemonStatuses();
+          
+          // Re-render search results to disable button
+          executeSearch();
+        } else {
+          showToast(data.detail || 'Failed to add product', 'error');
+        }
+      } catch (err) {
+        showToast('Network error adding product', 'error');
+      }
+    }
+
+    // Load keywords
+    async function loadKeywords(provider) {
+      try {
+        const res = await fetch(`/keywords/${provider}`);
+        const data = await res.json();
+        
+        const container = document.getElementById(`${provider}-keyword-tags`);
+        container.innerHTML = '';
+        
+        if (data.keywords.length === 0) {
+          container.innerHTML = `<span style="font-size: 0.8rem; color:var(--text-muted);">No keywords set</span>`;
+          return;
+        }
+        
+        data.keywords.forEach((kw, idx) => {
+          const tag = document.createElement('span');
+          tag.className = 'keyword-tag';
+          tag.innerHTML = `
+            ${kw}
+            <button onclick="removeKeyword('${provider}', ${idx})">×</button>
+          `;
+          container.appendChild(tag);
+        });
+      } catch (err) {
+        console.error(`Error loading keywords for ${provider}:`, err);
+      }
+    }
+
+    // Add keyword
+    async function addKeyword(provider) {
+      const input = document.getElementById(`${provider}-new-keyword`);
+      const word = input.value.trim();
+      
+      if (!word) return;
+      
+      // Get existing keywords
+      try {
+        const resGet = await fetch(`/keywords/${provider}`);
+        const dataGet = await resGet.json();
+        const currentKeywords = dataGet.keywords;
+        
+        if (currentKeywords.includes(word)) {
+          showToast('Keyword already exists', 'error');
+          return;
+        }
+        
+        currentKeywords.push(word);
+        
+        const resSet = await fetch(`/keywords/${provider}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: currentKeywords })
+        });
+        
+        if (resSet.ok) {
+          showToast('Added keyword');
+          input.value = '';
+          loadKeywords(provider);
+        }
+      } catch (err) {
+        showToast('Network error adding keyword', 'error');
+      }
+    }
+
+    // Remove keyword
+    async function removeKeyword(provider, index) {
+      try {
+        const resGet = await fetch(`/keywords/${provider}`);
+        const dataGet = await resGet.json();
+        const currentKeywords = dataGet.keywords;
+        
+        currentKeywords.splice(index, 1);
+        
+        const resSet = await fetch(`/keywords/${provider}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: currentKeywords })
+        });
+        
+        if (resSet.ok) {
+          showToast('Removed keyword');
+          loadKeywords(provider);
+        }
+      } catch (err) {
+        showToast('Network error removing keyword', 'error');
+      }
+    }
+
+    // Geolocation setup handlers
+    async function openLocationModal(provider) {
+      currentActiveSetupProvider = provider;
+      document.getElementById('modal-provider-name').textContent = provider.toUpperCase();
+      
+      showToast(`Launching headed browser setup for ${provider}...`);
+      
+      try {
+        const res = await fetch(`/setup/${provider}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          document.getElementById('location-modal').classList.add('active');
+        } else {
+          showToast(data.detail || 'Failed to open location setup session', 'error');
+        }
+      } catch (err) {
+        showToast('Network error launching location browser', 'error');
+      }
+    }
+
+    function closeLocationModal() {
+      document.getElementById('location-modal').classList.remove('active');
+      currentActiveSetupProvider = null;
+    }
+
+    async function saveLocationState() {
+      if (!currentActiveSetupProvider) return;
+      
+      const saveBtn = document.getElementById('save-location-btn');
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = `<i data-lucide="loader-2" class="spinner"></i> Saving cookies...`;
+      lucide.createIcons();
+      
+      try {
+        const res = await fetch(`/setup/${currentActiveSetupProvider}/save`, { method: 'POST' });
+        const data = await res.json();
+        
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `<i data-lucide="save"></i> Save & Save State Context`;
+        lucide.createIcons();
+        
+        if (res.ok) {
+          showToast(`Location context successfully configured for ${currentActiveSetupProvider.toUpperCase()}!`);
+          closeLocationModal();
+          refreshAllStats();
+        } else {
+          showToast(data.detail || 'Failed to save location details', 'error');
+        }
+      } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `<i data-lucide="save"></i> Save & Save State Context`;
+        lucide.createIcons();
+        showToast('Network error closing setup session', 'error');
+      }
+    }
+  </script>
+</body>
+</html>

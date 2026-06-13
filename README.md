@@ -48,13 +48,38 @@ This tool solves this by simulating a real user at your exact location, constant
 
 Ensure you have **Python 3.8+** installed.
 
-### 1. Install Dependencies
+---
+
+### 🚀 Quick Start (Windows One-Click Setup)
+
+If you are on Windows, simply double-click the **[run_dashboard.bat](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/run_dashboard.bat)** script in the root directory. 
+This script will automatically:
+1. Check for Python and upgrade `pip`.
+2. Install all required dependencies.
+3. Install Playwright's Chromium browser.
+4. Launch the FastAPI server and automatically open the Dashboard in your default browser at `http://localhost:8000`.
+
+### ♻️ Resetting & Starting Fresh (Windows One-Click Reset)
+
+If you need to start fresh, clear tracking history, delete saved geolocations, and start setup anew, double-click the **[reset_tracker.bat](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/reset_tracker.bat)** script in the root directory. 
+This will automatically:
+1. Stop and terminate any active tracker and Python server processes.
+2. Clear the stock change history database (`tracker.db`).
+3. Delete cached delivery address states (`state.json` & `zepto_state.json`).
+4. Revert all config settings to empty templates.
+5. Wipe out debugging screenshots.
+
+---
+
+### Manual Setup (macOS / Linux / Windows CLI)
+
+#### 1. Install Dependencies
 Install the required packages using the `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Install Playwright Browsers
+#### 2. Install Playwright Browsers
 Playwright requires browser binaries to operate. Run the following command to download the Chromium browser:
 ```bash
 playwright install chromium

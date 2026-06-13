@@ -4,11 +4,16 @@ import random
 import sqlite3
 import threading
 import urllib.parse
+import sys
+import asyncio
 from typing import List, Dict, Optional
 from datetime import datetime
 
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -43,6 +48,7 @@ active_setups: Dict[str, dict] = {}
 class ProductItem(BaseModel):
     name: str = Field(..., description="Friendly name of the product", example="Hot Wheels High-Tail Chaser Die Cast Car")
     url: str = Field(..., description="Direct Blinkit/Zepto detail page URL containing product identifier", example="https://blinkit.com/prn/hot-wheels-high-tail-chaser-die-cast-car/prid/771923")
+    status: Optional[str] = Field(None, description="Initial stock status of the product", example="IN_STOCK")
 
 class ProductList(BaseModel):
     products: List[ProductItem]
@@ -82,14 +88,18 @@ def get_db_history() -> List[dict]:
 # --- Worker Thread Loop ---
 def background_tracker_worker(provider: str, stop_event: threading.Event, metadata: dict):
     """Periodically scrapes stock status and keyword discovery in the background."""
-    tracker = blinkit if provider == "blinkit" else zepto
-    tracker.init_db()
-    
-    metadata["last_run_time"] = datetime.now().isoformat()
-    
-    from playwright.sync_api import sync_playwright
+    # Create and set a new event loop for this thread to avoid Playwright/asyncio thread errors on Windows
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
     try:
+        tracker = blinkit if provider == "blinkit" else zepto
+        tracker.init_db()
+        
+        metadata["last_run_time"] = datetime.now().isoformat()
+        
+        from playwright.sync_api import sync_playwright
+        
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
@@ -189,14 +199,29 @@ def background_tracker_worker(provider: str, stop_event: threading.Event, metada
         print(f"Error in {provider} background tracker worker: {e}")
     finally:
         metadata["is_running"] = False
+        loop.close()
 
 
 # --- REST Routes ---
 
 @app.get("/", include_in_schema=False)
-def root_redirect():
-    """Redirect root access to Swagger UI documentation."""
-    return RedirectResponse(url="/docs")
+def serve_dashboard():
+    """Serves the Unified Dashboard Web UI."""
+    return FileResponse("index.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+
+@app.on_event("startup")
+def open_browser():
+    if os.environ.get("TRACKER_BROWSER_OPENED") != "true":
+        os.environ["TRACKER_BROWSER_OPENED"] = "true"
+        def _open():
+            time.sleep(1.5)
+            import webbrowser
+            try:
+                webbrowser.open("http://localhost:8000")
+            except Exception as e:
+                print(f"Failed to automatically open browser: {e}")
+        threading.Thread(target=_open, daemon=True).start()
 
 
 @app.get("/health", tags=["General"])
@@ -217,6 +242,90 @@ def get_status_change_history():
     return {"count": len(history), "history": history}
 
 
+@app.post("/reset", tags=["General"])
+def reset_application():
+    """Stops all background trackers, deletes the SQLite database history, state cookies, configs, and screenshots."""
+    # 1. Stop background threads gracefully
+    for provider in ["blinkit", "zepto"]:
+        if provider in active_threads and active_threads[provider].is_alive():
+            try:
+                stop_events[provider].set()
+                active_threads[provider].join(timeout=3)
+            except Exception:
+                pass
+    
+    active_threads.clear()
+    stop_events.clear()
+    thread_metadata.clear()
+    
+    # Close any active headed location setup sessions
+    for provider in list(active_setups.keys()):
+        try:
+            active_setups[provider]["browser"].close()
+            active_setups[provider]["playwright"].stop()
+        except Exception:
+            pass
+    active_setups.clear()
+
+    # 2. Reset database (either delete file or recreate tables)
+    db_file = "tracker.db"
+    if os.path.exists(db_file):
+        try:
+            os.remove(db_file)
+        except Exception:
+            # Fallback: empty tables if file is locked
+            try:
+                conn = sqlite3.connect(db_file)
+                cursor = conn.cursor()
+                cursor.execute("DROP TABLE IF EXISTS product_status")
+                cursor.execute("DROP TABLE IF EXISTS status_history")
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+    # 3. Clear location states
+    for sf in ["state.json", "zepto_state.json"]:
+        if os.path.exists(sf):
+            try:
+                os.remove(sf)
+            except Exception:
+                pass
+
+    # 4. Revert configs to empty template defaults
+    default_config = {
+        "check_interval_minutes": 10,
+        "desktop_notifications": True,
+        "telegram": {
+            "enabled": False,
+            "bot_token": "YOUR_BOT_TOKEN",
+            "chat_id": "YOUR_CHAT_ID"
+        },
+        "tracked_keywords": [],
+        "products": []
+    }
+    for cf in ["config.json", "zepto_config.json"]:
+        try:
+            with open(cf, "w") as f:
+                import json
+                json.dump(default_config, f, indent=2)
+        except Exception:
+            pass
+
+    # 5. Clear screenshots directory
+    screenshots_dir = "screenshots"
+    if os.path.exists(screenshots_dir):
+        try:
+            import shutil
+            shutil.rmtree(screenshots_dir)
+            os.makedirs(screenshots_dir)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": "All tracking states, database, and location cookies have been cleared successfully."}
+
+
+
 # --- Setup Geolocation Routes (Non-blocking) ---
 
 @app.post("/setup/{provider}", tags=["Location Setup"])
@@ -231,6 +340,8 @@ def initialize_location_setup(provider: str):
     if provider in active_setups:
         raise HTTPException(status_code=400, detail=f"Setup is already running for {provider}. Save it first or wait.")
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     from playwright.sync_api import sync_playwright
     
     tracker = blinkit if provider == "blinkit" else zepto
@@ -252,7 +363,8 @@ def initialize_location_setup(provider: str):
             "playwright": p,
             "browser": browser,
             "context": context,
-            "tracker": tracker
+            "tracker": tracker,
+            "loop": loop
         }
         
         return {
@@ -264,6 +376,8 @@ def initialize_location_setup(provider: str):
         # Cleanup if launch fails
         if provider in active_setups:
             del active_setups[provider]
+        if loop:
+            loop.close()
         raise HTTPException(status_code=500, detail=f"Failed to launch browser: {str(e)}")
 
 
@@ -284,14 +398,19 @@ def finalize_location_setup(provider: str):
     browser = setup_data["browser"]
     context = setup_data["context"]
     tracker = setup_data["tracker"]
+    loop = setup_data.get("loop")
     
     try:
+        if loop:
+            asyncio.set_event_loop(loop)
         # Extract storage state
         context.storage_state(path=tracker.STATE_FILE)
         
         # Shutdown browser
         browser.close()
         p.stop()
+        if loop:
+            loop.close()
         
         # Clean from global
         del active_setups[provider]
@@ -302,6 +421,8 @@ def finalize_location_setup(provider: str):
             "provider": provider
         }
     except Exception as e:
+        if loop:
+            loop.close()
         raise HTTPException(status_code=500, detail=f"Failed to finalize setup: {str(e)}")
 
 
@@ -318,8 +439,39 @@ def get_tracked_products(provider: str):
     return {"products": config.get("products", [])}
 
 
+def scrape_and_update_product_stock_bg(provider: str, name: str, url: str):
+    """Background task to scrape product stock and update database status."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        tracker = blinkit if provider == "blinkit" else zepto
+        if not os.path.exists(tracker.STATE_FILE):
+            return
+            
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                storage_state=tracker.STATE_FILE,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            page = context.new_page()
+            product = {"name": name, "url": url}
+            status = tracker.check_product_stock(page, product)
+            browser.close()
+            
+            tracker.init_db()
+            tracker.update_status(url, name, status)
+    except Exception as e:
+        print(f"Error in background scrape for newly added product {name}: {e}")
+    finally:
+        loop.close()
+
+
 @app.post("/products/{provider}", tags=["Product Configuration"])
-def add_tracked_product(provider: str, product: ProductItem):
+def add_tracked_product(provider: str, product: ProductItem, background_tasks: BackgroundTasks):
     """Adds a new product item manually using Name and URL to config."""
     if provider not in ["blinkit", "zepto"]:
         raise HTTPException(status_code=400, detail="Invalid provider. Must be 'blinkit' or 'zepto'.")
@@ -333,6 +485,19 @@ def add_tracked_product(provider: str, product: ProductItem):
         return {"status": "ignored", "message": "Product is already tracked.", "product": product}
         
     tracker.add_to_config(product.name, product.url)
+    
+    # Update DB status immediately upon adding product
+    initial_status = product.status or "UNKNOWN"
+    try:
+        tracker.init_db()
+        tracker.update_status(product.url, product.name, initial_status)
+    except Exception as e:
+        print(f"Error initializing/updating DB status for newly added product: {e}")
+        
+    # If initial status is UNKNOWN, trigger a background task to scrape it immediately
+    if initial_status == "UNKNOWN":
+        background_tasks.add_task(scrape_and_update_product_stock_bg, provider, product.name, product.url)
+        
     return {"status": "added", "message": "Successfully added product to track list.", "product": product}
 
 
@@ -400,9 +565,11 @@ def search_marketplace_products(provider: str, q: str = Query(..., description="
     if not os.path.exists(tracker.STATE_FILE):
         raise HTTPException(status_code=400, detail=f"Location state file {tracker.STATE_FILE} missing. Run location setup.")
         
-    from playwright.sync_api import sync_playwright
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
     try:
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
@@ -431,7 +598,11 @@ def search_marketplace_products(provider: str, q: str = Query(..., description="
                 
             return {"query": q, "count": len(formatted_results), "results": formatted_results}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+    finally:
+        loop.close()
 
 
 @app.get("/stock/{provider}", tags=["Live Actions"])
@@ -444,9 +615,11 @@ def get_live_product_stock(provider: str, url: str = Query(..., description="Dir
     if not os.path.exists(tracker.STATE_FILE):
         raise HTTPException(status_code=400, detail=f"Location state file {tracker.STATE_FILE} missing. Run location setup.")
         
-    from playwright.sync_api import sync_playwright
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
     try:
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
@@ -456,14 +629,29 @@ def get_live_product_stock(provider: str, url: str = Query(..., description="Dir
             )
             page = context.new_page()
             
-            # Mock configuration object
-            product = {"name": "API Live Test Product", "url": url}
+            # Try to find the product name from config
+            config = tracker.load_config()
+            products = config.get("products", [])
+            product_name = next((p["name"] for p in products if p["url"] == url), "API Live Test Product")
+            
+            product = {"name": product_name, "url": url}
             status = tracker.check_product_stock(page, product)
             browser.close()
             
+            # Update DB status
+            try:
+                tracker.init_db()
+                tracker.update_status(url, product_name, status)
+            except Exception as e:
+                print(f"Error updating DB status during live check: {e}")
+            
             return {"url": url, "status": status, "timestamp": datetime.now().isoformat()}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Scrape request failed: {str(e)}")
+    finally:
+        loop.close()
 
 
 # --- Tracker Background Controls ---
@@ -488,6 +676,34 @@ def get_background_tracker_status(provider: str):
         "tracked_products_count": len(config.get("products", [])),
         "tracked_keywords_count": len(config.get("tracked_keywords", []))
     }
+
+
+@app.post("/tracker/all/start", tags=["Tracker Monitor Daemon"])
+def start_all_trackers():
+    """Starts the background tracking check loops for both providers."""
+    results = {}
+    for provider in ["blinkit", "zepto"]:
+        try:
+            res = start_background_tracker(provider)
+            results[provider] = res
+        except HTTPException as e:
+            results[provider] = {"status": "error", "detail": e.detail}
+        except Exception as e:
+            results[provider] = {"status": "error", "detail": str(e)}
+    return results
+
+
+@app.post("/tracker/all/stop", tags=["Tracker Monitor Daemon"])
+def stop_all_trackers():
+    """Signals stop and terminates background worker monitor threads for both providers."""
+    results = {}
+    for provider in ["blinkit", "zepto"]:
+        try:
+            res = stop_background_tracker(provider)
+            results[provider] = res
+        except Exception as e:
+            results[provider] = {"status": "error", "detail": str(e)}
+    return results
 
 
 @app.post("/tracker/{provider}/start", tags=["Tracker Monitor Daemon"])
@@ -551,7 +767,10 @@ def stop_background_tracker(provider: str):
     }
 
 
+# All/Individual routes reordered above
+
+
 if __name__ == "__main__":
     print("Starting FastAPI service on http://localhost:8000")
     print("Open http://localhost:8000/docs for Swagger documentation.")
-    uvicorn.run("api:app", host="localhost", port=8000, reload=True)
+    uvicorn.run("api:app", host="localhost", port=8000, reload=False)
