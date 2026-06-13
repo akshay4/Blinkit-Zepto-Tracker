@@ -269,7 +269,7 @@ class _KeywordsScreenState extends State<KeywordsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? accentColor.withOpacity(0.12) : const Color(0xFFF8F9FA),
+            color: isSelected ? accentColor.withValues(alpha: 0.12) : const Color(0xFFF8F9FA),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected ? accentColor : const Color(0xFFE2E8F0),

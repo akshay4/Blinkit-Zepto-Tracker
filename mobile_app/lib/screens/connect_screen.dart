@@ -76,7 +76,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF6C63FF).withOpacity(0.3),
+                            color: const Color(0xFF6C63FF).withValues(alpha: 0.3),
                             blurRadius: 20,
                             offset: const Offset(0, 8),
                           )
@@ -122,7 +122,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
+                          color: Colors.black.withValues(alpha: 0.04),
                           blurRadius: 24,
                           offset: const Offset(0, 10),
                         )

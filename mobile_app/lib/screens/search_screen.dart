@@ -230,7 +230,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                   borderRadius: BorderRadius.circular(16),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withOpacity(0.01),
+                                      color: Colors.black.withValues(alpha: 0.01),
                                       blurRadius: 10,
                                       offset: const Offset(0, 4),
                                     )
@@ -350,7 +350,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? accentColor.withOpacity(0.12) : const Color(0xFFF8F9FA),
+            color: isSelected ? accentColor.withValues(alpha: 0.12) : const Color(0xFFF8F9FA),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected ? accentColor : const Color(0xFFE2E8F0),
