@@ -14,6 +14,7 @@ if sys.platform == 'win32':
 
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -33,6 +34,15 @@ app = FastAPI(
     title="Blinkit & Zepto Stock Tracker API 🛒",
     description="REST API to manage hyperlocal product stock monitoring and background search discovery.",
     version="1.0.0"
+)
+
+# Enable CORS for mobile application connections
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Global tracking structures for background monitor threads

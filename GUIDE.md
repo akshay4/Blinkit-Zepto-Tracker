@@ -48,18 +48,27 @@ If you want to clear your list, delete history, or reset your address:
 
 ---
 
-## 📱 iPad / Phone (How to View the Dashboard)
+## 📱 iPad / Phone / Android (How to View or Run the App)
 
-You cannot run the tracker setup directly on an iPad or iPhone, but you can easily view and control it from your iPad screen while it runs on your computer!
+There are two easy ways to view and control the tracker from your mobile device:
 
-### How to Connect:
+### Option A: Open in a Web Browser (Easiest)
 1. Make sure your computer (PC or Mac) is running the tracker dashboard.
-2. Ensure both your computer and your iPad are connected to the **same Wi-Fi network**.
+2. Ensure both your computer and your mobile device are connected to the **same Wi-Fi network**.
 3. Look at the black command window on your computer. It will display a helper address, for example:
    `📡 Access from other local devices (like iPad) at: http://192.168.1.15:8000`
-4. Open **Safari** or **Chrome** on your iPad.
-5. Type that exact address (e.g. `http://192.168.1.15:8000`) into the web address bar at the top and press Go.
-6. The dashboard will load on your iPad, allowing you to control everything from your tablet!
+4. Open **Safari** or **Chrome** on your device.
+5. Type that exact address (e.g. `http://192.168.1.15:8000`) and press Go.
+6. The dashboard will load on your device, allowing you to monitor and configure everything!
+
+### Option B: Use the Native Mobile App (Premium Experience)
+We have built a dedicated native mobile application inside the `mobile_app` folder. To run it:
+1. Open your terminal/command prompt and navigate to the folder:
+   `cd mobile_app`
+2. Ensure you have a simulator running or a physical device connected, then type:
+   `flutter run`
+3. Enter your PC's server IP (e.g. `192.168.1.15:8000`) on the connection page.
+4. You now have a native app with premium navigation tabs to monitor daemons, swipe-to-delete products, check stocks instantly, and configure keywords directly from your phone!
 
 ---
 
