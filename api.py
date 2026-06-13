@@ -771,6 +771,19 @@ def stop_background_tracker(provider: str):
 
 
 if __name__ == "__main__":
+    import socket
+    local_ip = "localhost"
+    try:
+        # Connect to a dummy external address to find the active local network interface
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+
     print("Starting FastAPI service on http://localhost:8000")
+    if local_ip != "localhost":
+        print(f"📡 Access from other local devices (like iPad) at: http://{local_ip}:8000")
     print("Open http://localhost:8000/docs for Swagger documentation.")
-    uvicorn.run("api:app", host="localhost", port=8000, reload=False)
+    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=False)

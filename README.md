@@ -59,15 +59,31 @@ This script will automatically:
 3. Install Playwright's Chromium browser.
 4. Launch the FastAPI server and automatically open the Dashboard in your default browser at `http://localhost:8000`.
 
-### ♻️ Resetting & Starting Fresh (Windows One-Click Reset)
+### 🍎 Quick Start (macOS One-Click Setup)
 
-If you need to start fresh, clear tracking history, delete saved geolocations, and start setup anew, double-click the **[reset_tracker.bat](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/reset_tracker.bat)** script in the root directory. 
-This will automatically:
-1. Stop and terminate any active tracker and Python server processes.
-2. Clear the stock change history database (`tracker.db`).
-3. Delete cached delivery address states (`state.json` & `zepto_state.json`).
-4. Revert all config settings to empty templates.
-5. Wipe out debugging screenshots.
+If you are on a Mac, you can double-click **[run_dashboard.sh](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/run_dashboard.sh)** (or run `./run_dashboard.sh` in the Terminal).
+This script will automatically install dependencies, download the Playwright browser, and launch the dashboard server at `http://localhost:8000`.
+
+*Note: You may need to run `chmod +x run_dashboard.sh reset_tracker.sh` in Terminal once to give them execution permission.*
+
+### ♻️ Resetting & Starting Fresh (One-Click Reset)
+
+If you need to start fresh, clear tracking history, delete saved geolocations, and start setup anew:
+* **Windows**: Double-click **[reset_tracker.bat](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/reset_tracker.bat)**.
+* **macOS**: Double-click **[reset_tracker.sh](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/reset_tracker.sh)** (or run `./reset_tracker.sh` in Terminal).
+
+This will automatically stop active trackers, clear `tracker.db` logs, wipe out geolocation cookies, and restore configuration files to default templates.
+
+### 📱 Accessing from an iPad (or Mobile devices)
+
+While **iPadOS does not support running Python background servers or Playwright browser instances directly**, you can easily use your iPad to control and monitor the tracker:
+
+1. Launch the dashboard server on your PC or Mac using `run_dashboard.bat` or `run_dashboard.sh`.
+2. Ensure both the computer (host) and your iPad are connected to the **same Wi-Fi network**.
+3. Look at the console log output on your computer. It will print the local network IP address, for example:
+   `📡 Access from other local devices (like iPad) at: http://192.168.1.15:8000`
+4. Open Safari or Chrome on your iPad, and navigate to that address (e.g. `http://192.168.1.15:8000`).
+5. You can now use the full dashboard interface (track status, run searches, start/stop monitoring) directly from your iPad!
 
 ---
 
