@@ -3,6 +3,7 @@
 Storage, browser sessions, block detection and problem reports live here so
 that every entry point handles them the same way.
 """
+import io
 import json
 import os
 import platform
@@ -13,6 +14,8 @@ import sys
 import threading
 import time
 import urllib.parse
+import zipfile
+from collections import Counter
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 from importlib import metadata as importlib_metadata
@@ -25,6 +28,7 @@ DATA_DIR = os.environ.get("TRACKER_DATA_DIR") or BASE_DIR
 DIAG_DIR = os.path.join(DATA_DIR, "diagnostics")
 INCIDENT_FILE = os.path.join(DIAG_DIR, "incidents.jsonl")
 BLOCK_FILE = os.path.join(DIAG_DIR, "block_state.json")
+LOG_FILE = os.path.join(DIAG_DIR, "app.log")
 
 APP_VERSION = "1.1.0"
 REPORT_REPO = "akshay4/Blinkit-Zepto-Tracker"
@@ -35,12 +39,14 @@ PROVIDERS = {
         "home": "https://blinkit.com",
         "hosts": {"blinkit.com", "www.blinkit.com"},
         "state_file": "state.json",
+        "config_file": "config.json",
     },
     "zepto": {
         "label": "Zepto",
         "home": "https://www.zepto.com",
         "hosts": {"zepto.com", "www.zepto.com", "zeptonow.com", "www.zeptonow.com"},
         "state_file": "zepto_state.json",
+        "config_file": "zepto_config.json",
     },
 }
 
@@ -59,6 +65,7 @@ MAX_BLOCK_COOLDOWN_MINUTES = 360
 MAX_INCIDENTS = 200
 MAX_DIAG_SCREENSHOTS = 10
 MAX_REPORT_URL_LENGTH = 7500
+MAX_LOG_BYTES = 2_000_000
 
 # These statuses mean "the check told us nothing", so they never replace a real one.
 TRANSIENT_STATUSES = {"UNKNOWN"}
@@ -97,6 +104,7 @@ PAGE_INFO_JS = """() => {
 
 config_lock = threading.RLock()
 _block_lock = threading.RLock()
+_log_lock = threading.RLock()
 _pace_lock = threading.Lock()
 _next_page_time = {}
 _browser_slots = threading.BoundedSemaphore(2)
@@ -646,11 +654,63 @@ def alert_blocked(provider, config, error, log=print):
     send_telegram(config.get("telegram") or {}, f"⚠️ {markdown_escape(summary)}", log)
 
 
+# --- Log file ---
+
+ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def write_log_line(line):
+    with _log_lock:
+        os.makedirs(DIAG_DIR, exist_ok=True)
+        if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > MAX_LOG_BYTES:
+            os.replace(LOG_FILE, f"{LOG_FILE}.1")
+        with open(LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{datetime.now().isoformat(timespec='seconds')} {scrub(line)}\n")
+
+
+class LogTee:
+    """Passes output through to the terminal and keeps a cleaned copy in the log file."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._buffer = ""
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        written = self._stream.write(text)
+        try:
+            with self._lock:
+                self._buffer += ANSI_CODES.sub("", text)
+                *lines, self._buffer = self._buffer.split("\n")
+            for line in lines:
+                if line.strip():
+                    write_log_line(line.rstrip())
+        except Exception:
+            pass  # A full disk must never stop the tracker.
+        return written
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def install_log_capture():
+    """Saves everything printed from now on, including errors, to the log file."""
+    if isinstance(sys.stdout, LogTee):
+        return
+    sys.stdout = LogTee(sys.stdout)
+    sys.stderr = LogTee(sys.stderr)
+    write_log_line(f"--- Started app {APP_VERSION} on {platform.system()} {platform.release()}, Python {platform.python_version()} ---")
+
+
 # --- Incidents and reports ---
 
 def scrub(text):
     """Removes personal or secret details before text is stored or shared."""
     text = str(text or "")
+    text = re.sub(r"([?&](?:q|query)=)[^\s&\"']+", r"\1<query>", text)
     text = re.sub(r"bot\d+:[\w-]+", "bot<token>", text)
     text = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "<ip>", text)
     text = re.sub(r"\b(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}\b", "<ip>", text)
@@ -785,6 +845,71 @@ def build_report(note="", context=None):
     return {"title": title, "text": text, "github_url": report_url(title, text), "repo": REPORT_REPO}
 
 
+def app_context():
+    """Everything useful about this install, without cookies, address or tokens."""
+    statuses = current_statuses(path("tracker.db"))
+    providers = {}
+    for provider, info in PROVIDERS.items():
+        details = provider_summary(provider)
+        meta = read_state_meta(path(info["state_file"]))
+        details.update(user_agent=meta.get("user_agent"), setup_saved_at=meta.get("saved_at"))
+        try:
+            config = load_config(path(info["config_file"]))
+            telegram = config.get("telegram") or {}
+            details.update(
+                products=len(config["products"]),
+                keywords=len(config.get("tracked_keywords") or []),
+                check_interval_minutes=check_interval_minutes(config),
+                desktop_notifications=bool(config.get("desktop_notifications")),
+                telegram_enabled=bool(telegram.get("enabled")),
+            )
+        except ConfigError as e:
+            details["config_error"] = scrub(str(e))
+        details["status_counts"] = dict(Counter(
+            status for url, status in statuses.items() if is_allowed_url(provider, url)
+        ))
+        providers[provider] = details
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "app_version": APP_VERSION,
+        "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "python": platform.python_version(),
+        "packages": {name: _package_version(name) for name in ("playwright", "fastapi", "uvicorn", "rich", "plyer", "requests")},
+        "providers": providers,
+        "incidents": recent_incidents(MAX_INCIDENTS),
+    }
+
+
+def _newest_screenshots():
+    """Yields the most recent screenshots as (path, name inside the zip)."""
+    for folder, label in ((DIAG_DIR, "blocks"), (path("screenshots"), "products")):
+        if not os.path.isdir(folder):
+            continue
+        files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".png")]
+        files.sort(key=os.path.getmtime, reverse=True)
+        for file_path in files[:MAX_DIAG_SCREENSHOTS]:
+            yield file_path, f"screenshots/{label}/{os.path.basename(file_path)}"
+
+
+def build_log_bundle(note="", context=None, include_screenshots=True):
+    """Builds one zip for the user to send: report, app details, logs and screenshots."""
+    report = build_report(note, context)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as archive:
+        archive.writestr("report.txt", report["text"])
+        archive.writestr("app-context.json", json.dumps(app_context(), indent=2, ensure_ascii=False))
+        files = [(p, f"logs/{os.path.basename(p)}") for p in (f"{LOG_FILE}.1", LOG_FILE)]
+        if include_screenshots:
+            files += list(_newest_screenshots())
+        with _log_lock:
+            for file_path, name in files:
+                try:
+                    archive.write(file_path, name)
+                except OSError:
+                    pass  # Not created yet, or removed since it was listed.
+    return buffer.getvalue()
+
+
 def report_url(title, text):
     """Builds a pre-filled GitHub issue link, shortening the body to fit a URL."""
     base = f"https://github.com/{REPORT_REPO}/issues/new?"
@@ -808,4 +933,8 @@ if __name__ == "__main__":
         f.write(report["text"])
     print(report["text"])
     print(f"\nSaved to {report_path}")
-    print(f"\nOpen this link to send it:\n{report['github_url']}")
+    bundle_path = os.path.join(DIAG_DIR, "logs-to-send.zip")
+    with open(bundle_path, "wb") as f:
+        f.write(build_log_bundle(" ".join(a for a in sys.argv[1:] if a != "--report"), "command line"))
+    print(f"\nSend this file to the developer: {bundle_path}")
+    print(f"\nOr open this link to report it on GitHub:\n{report['github_url']}")

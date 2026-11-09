@@ -1082,15 +1082,19 @@
           <textarea class="form-input" id="report-note" rows="3" maxlength="2000" oninput="queueReportRefresh()"></textarea>
         </div>
         <div class="form-group" style="margin-top:1rem;">
-          <label class="form-label" for="report-text">This is exactly what gets sent. It leaves out cookies, your address, your IP address and Telegram details.</label>
+          <label class="form-label" for="report-text">Summary of what gets sent. It leaves out cookies, your IP address and Telegram details.</label>
           <textarea class="form-input report-text" id="report-text" readonly></textarea>
         </div>
-        <p style="margin-top:0.75rem; font-size:0.8rem;">Sending opens a GitHub issue, which needs a free GitHub account and is public. No account? Copy the text and send it to the developer another way.</p>
+        <label style="display:flex; gap:0.5rem; align-items:flex-start; margin-top:0.75rem; font-size:0.85rem; text-align:left;">
+          <input type="checkbox" id="report-screenshots" checked>
+          <span>Include screenshots. Check them first if you are sharing publicly, because they can show your delivery address.</span>
+        </label>
+        <p style="margin-top:0.75rem; font-size:0.8rem;"><strong>Download logs</strong> saves one .zip file with the app details, logs and screenshots. Send that file to the developer on WhatsApp or email. A GitHub issue is public and needs a free account.</p>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary" id="report-send-btn" onclick="sendReport()">Open GitHub issue</button>
+        <button class="btn btn-primary" id="report-logs-btn" onclick="downloadLogs()">Download logs</button>
+        <button class="btn btn-secondary" id="report-send-btn" onclick="sendReport()">Open GitHub issue</button>
         <button class="btn btn-secondary" onclick="copyReport()">Copy text</button>
-        <button class="btn btn-secondary" onclick="downloadReport()">Download</button>
         <button class="btn btn-secondary" onclick="closeReportModal()">Close</button>
       </div>
     </div>
@@ -1801,13 +1805,32 @@
       showToast('Report copied');
     }
 
-    function downloadReport() {
-      const blob = new Blob([document.getElementById('report-text').value], { type: 'text/plain' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'tracker-report.txt';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    async function downloadLogs() {
+      const button = document.getElementById('report-logs-btn');
+      button.disabled = true;
+      try {
+        const res = await fetch('/report/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            note: document.getElementById('report-note').value,
+            context: reportContext,
+            include_screenshots: document.getElementById('report-screenshots').checked
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(await res.blob());
+        link.download = `tracker-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        showToast('Logs saved. Send the .zip file to the developer.');
+      } catch (err) {
+        showToast('Could not create the logs file', 'error');
+      }
+      button.disabled = false;
     }
   </script>
 </body>

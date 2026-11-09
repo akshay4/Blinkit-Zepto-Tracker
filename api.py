@@ -17,7 +17,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -150,6 +150,7 @@ class KeywordList(BaseModel):
 class ReportRequest(BaseModel):
     note: str = Field("", max_length=2000, description="What the user was doing and what went wrong")
     context: str = Field("", max_length=100, description="Where the report was started from")
+    include_screenshots: bool = Field(True, description="Add recent screenshots to the log bundle")
 
 
 class TrackerStatus(BaseModel):
@@ -497,6 +498,17 @@ def get_diagnostics():
 def create_problem_report(payload: ReportRequest):
     """Builds a report for the user to review and send. Nothing is sent by the server."""
     return core.build_report(payload.note, payload.context)
+
+
+@app.post("/report/logs", tags=["Problem Reports"])
+def download_log_bundle(payload: ReportRequest):
+    """Returns a zip of the report, app details, logs and screenshots for the user to send."""
+    name = f"tracker-logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    return Response(
+        core.build_log_bundle(payload.note, payload.context, payload.include_screenshots),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.post("/reset", tags=["General"])
@@ -868,6 +880,7 @@ def stop_background_tracker(provider: str):
 
 
 if __name__ == "__main__":
+    core.install_log_capture()
     import socket
     local_ip = "localhost"
     try:
