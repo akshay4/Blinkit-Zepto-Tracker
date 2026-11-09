@@ -20,7 +20,9 @@ from importlib import metadata as importlib_metadata
 import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DIAG_DIR = os.path.join(BASE_DIR, "diagnostics")
+# Tests point this at a temporary folder so they never touch real settings or cookies.
+DATA_DIR = os.environ.get("TRACKER_DATA_DIR") or BASE_DIR
+DIAG_DIR = os.path.join(DATA_DIR, "diagnostics")
 INCIDENT_FILE = os.path.join(DIAG_DIR, "incidents.jsonl")
 BLOCK_FILE = os.path.join(DIAG_DIR, "block_state.json")
 
@@ -124,7 +126,7 @@ class BlockedError(Exception):
 
 
 def path(*parts):
-    return os.path.join(BASE_DIR, *parts)
+    return os.path.join(DATA_DIR, *parts)
 
 
 def provider_label(provider):

@@ -8,3 +8,6 @@ diagnostics/
 *.tmp
 __pycache__/
 screenshots/
+.coverage
+.pytest_cache/
+htmlcov/
