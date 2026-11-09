@@ -627,6 +627,7 @@ def _tracker_loop(check_once=False):
 
 
 if __name__ == "__main__":
+    core.install_log_capture()
     parser = argparse.ArgumentParser(description="Hyperlocal product stock tracker for Zepto.")
     parser.add_argument("--setup", action="store_true", help="Launch interactive browser to set delivery location and save cookies.")
     parser.add_argument("--add", action="store_true", help="Launch interactive wizard to search and add a product to track.")

@@ -106,6 +106,8 @@ While a site is refusing the tracker, checks pause on their own and resume later
 
 ## 🚩 Report a Problem
 
-Click **Report a problem** at the top of the dashboard. You can read everything before sending it, and it never includes your cookies, address, IP address or Telegram details. It opens a GitHub issue. If you don't have a GitHub account, click **Copy text** and send it to the developer another way.
+Click **Report a problem** at the top of the dashboard, describe what went wrong, then click **Download logs**. That saves one `.zip` file with the app details, logs and screenshots. Send it to the developer on WhatsApp or email.
 
-From a terminal, run `python tracker_core.py --report`.
+It never includes your cookies, IP address or Telegram details. Screenshots can show your delivery address, so untick **Include screenshots** if you'd rather leave them out.
+
+From a terminal, run `python tracker_core.py --report`. It creates `diagnostics/logs-to-send.zip`.

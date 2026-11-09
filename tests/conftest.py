@@ -30,3 +30,11 @@ def fresh_data():
 
 def pytest_sessionfinish(session, exitstatus):
     shutil.rmtree(DATA_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def restore_output_streams():
+    """Entry points install log capture on the output streams, so each test puts them back."""
+    out, err = sys.stdout, sys.stderr
+    yield
+    sys.stdout, sys.stderr = out, err
