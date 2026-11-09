@@ -781,6 +781,40 @@
     .toast.active {
       transform: translateX(0);
     }
+
+    .block-banner {
+      display: none;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--outstock-red);
+      border-radius: 12px;
+      font-size: 0.9rem;
+    }
+    .block-banner.active { display: flex; }
+    .block-banner p { flex: 1 1 320px; margin: 0; }
+    .setup-status {
+      margin: 0 0 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--unknown-yellow);
+      font-size: 0.875rem;
+      text-align: left;
+    }
+    .setup-status.blocked { border-color: var(--outstock-red); }
+    .setup-status.ok { border-color: var(--instock-green); }
+    .report-text {
+      width: 100%;
+      min-height: 170px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      resize: vertical;
+    }
+    .modal-card.wide { max-width: 640px; width: 100%; max-height: 90vh; overflow-y: auto; }
+    .modal-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -801,11 +835,19 @@
         <button class="btn btn-danger" onclick="triggerAllDaemons('stop')">
           <i data-lucide="square"></i> Stop All Trackers
         </button>
+        <button class="btn btn-secondary" onclick="openReportModal('dashboard')">
+          <i data-lucide="flag"></i> Report a problem
+        </button>
         <button class="btn btn-secondary" onclick="resetAllData()" style="border-color: var(--outstock-red); color: var(--outstock-red);">
           <i data-lucide="rotate-ccw"></i> Reset & Start Fresh
         </button>
       </div>
     </header>
+
+    <div class="block-banner" id="block-banner" role="alert">
+      <p id="block-banner-text"></p>
+      <button class="btn btn-secondary btn-sm" onclick="openReportModal('block banner')">Report a problem</button>
+    </div>
 
     <!-- Overview Daemon Status Widgets -->
     <div class="daemon-grid">
@@ -1008,9 +1050,10 @@
       <div class="modal-icon">
         <i data-lucide="map-pin"></i>
       </div>
-      <div class="modal-title">Headed Location Configurator</div>
+      <div class="modal-title">Set your delivery location</div>
       <div class="modal-body">
-        <p>A visible chromium browser window has been requested for <strong id="modal-provider-name">-</strong>.</p>
+        <div class="setup-status" id="setup-status" role="status">Opening the browser...</div>
+        <p>A browser window has been opened for <strong id="modal-provider-name">-</strong>.</p>
         <p style="margin-top:0.75rem;"><strong>Follow these steps:</strong></p>
         <ol>
           <li>A browser window will open on the host machine screen.</li>
@@ -1021,9 +1064,34 @@
       </div>
       <div style="display:flex; gap:1rem; justify-content:center;">
         <button class="btn btn-primary" id="save-location-btn" onclick="saveLocationState()">
-          <i data-lucide="save"></i> Save & Save State Context
+          <i data-lucide="save"></i> Save Location
         </button>
+        <button class="btn btn-secondary" id="setup-report-btn" style="display:none" onclick="openReportModal('location setup')">Report a problem</button>
         <button class="btn btn-secondary" onclick="closeLocationModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Problem Report Modal -->
+  <div class="modal-overlay" id="report-modal">
+    <div class="modal-card wide">
+      <div class="modal-title">Report a problem</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="report-note">What were you doing, and what went wrong?</label>
+          <textarea class="form-input" id="report-note" rows="3" maxlength="2000" oninput="queueReportRefresh()"></textarea>
+        </div>
+        <div class="form-group" style="margin-top:1rem;">
+          <label class="form-label" for="report-text">This is exactly what gets sent. It leaves out cookies, your address, your IP address and Telegram details.</label>
+          <textarea class="form-input report-text" id="report-text" readonly></textarea>
+        </div>
+        <p style="margin-top:0.75rem; font-size:0.8rem;">Sending opens a GitHub issue, which needs a free GitHub account and is public. No account? Copy the text and send it to the developer another way.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="report-send-btn" onclick="sendReport()">Open GitHub issue</button>
+        <button class="btn btn-secondary" onclick="copyReport()">Copy text</button>
+        <button class="btn btn-secondary" onclick="downloadReport()">Download</button>
+        <button class="btn btn-secondary" onclick="closeReportModal()">Close</button>
       </div>
     </div>
   </div>
@@ -1048,14 +1116,33 @@
       
       // Auto-refresh states every 5 seconds
       setInterval(() => {
-        pollDaemonStatuses();
+        if (!document.hidden) pollDaemonStatuses();
       }, 5000);
       
       // Auto-refresh history every 10 seconds
       setInterval(() => {
-        loadHistory();
+        if (!document.hidden) loadHistory();
       }, 10000);
     });
+
+    // Text from websites and the server is always escaped before it reaches innerHTML.
+    function esc(value) {
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return String(value ?? '').replace(/[&<>"']/g, c => map[c]);
+    }
+
+    // Safe inside a quoted onclick argument. encodeURIComponent leaves ' alone.
+    function encArg(value) {
+      return encodeURIComponent(value).replace(/'/g, '%27');
+    }
+
+    function safeHref(url) {
+      return /^https:\/\//i.test(url) ? esc(url) : '#';
+    }
+
+    function statusClass(status) {
+      return ['IN_STOCK', 'OUT_OF_STOCK'].includes(status) ? status : 'UNKNOWN';
+    }
 
     // Helper: Show notification toast
     function showToast(message, type = 'success') {
@@ -1065,7 +1152,7 @@
       toast.style.borderLeftColor = type === 'success' ? 'var(--instock-green)' : 'var(--outstock-red)';
       
       let icon = type === 'success' ? 'check-circle' : 'alert-circle';
-      toast.innerHTML = `<i data-lucide="${icon}"></i> <span>${message}</span>`;
+      toast.innerHTML = `<i data-lucide="${icon}"></i> <span>${esc(message)}</span>`;
       
       container.appendChild(toast);
       lucide.createIcons();
@@ -1105,15 +1192,22 @@
 
     // Daemon Poll
     async function pollDaemonStatuses() {
-      for (const provider of ['blinkit', 'zepto']) {
+      const messages = [];
+      await Promise.all(['blinkit', 'zepto'].map(async provider => {
         try {
           const res = await fetch(`/tracker/${provider}/status`);
           const data = await res.json();
           updateDaemonUI(provider, data);
+          if (data.block_message) {
+            const minutes = Math.max(1, Math.ceil(data.cooldown_seconds / 60));
+            messages.push(`${data.block_message} Checks resume automatically in about ${minutes} min.`);
+          }
         } catch (err) {
           console.error(`Error fetching daemon status for ${provider}:`, err);
         }
-      }
+      }));
+      document.getElementById('block-banner-text').textContent = messages.join(' ');
+      document.getElementById('block-banner').classList.toggle('active', messages.length > 0);
     }
 
     function updateDaemonUI(provider, status) {
@@ -1127,9 +1221,10 @@
       const intervalEl = document.getElementById(`${provider}-interval-val`);
       
       if (isRunning) {
+        const paused = status.state === 'paused';
         dot.className = 'status-dot active';
-        badge.className = 'status-badge IN_STOCK';
-        badge.textContent = 'MONITORING';
+        badge.className = paused ? 'status-badge UNKNOWN' : 'status-badge IN_STOCK';
+        badge.textContent = paused ? 'PAUSED' : 'MONITORING';
         toggleBtn.className = 'btn btn-danger btn-sm';
         toggleBtn.querySelector('.btn-icon').setAttribute('data-lucide', 'square');
         toggleBtn.querySelector('.btn-text').textContent = 'Stop Tracker';
@@ -1234,18 +1329,18 @@
             <div class="product-info">
               <span class="store-badge ${provider}">${provider}</span>
               <div class="product-details">
-                <a href="${p.url}" target="_blank" class="product-title-link">
-                  ${p.name} <i data-lucide="external-link" style="width:12px; height:12px;"></i>
+                <a href="${safeHref(p.url)}" target="_blank" rel="noopener" class="product-title-link">
+                  ${esc(p.name)} <i data-lucide="external-link" style="width:12px; height:12px;"></i>
                 </a>
-                <span class="product-url-sub">${p.url}</span>
+                <span class="product-url-sub">${esc(p.url)}</span>
               </div>
             </div>
             <div class="product-actions">
-              <span class="status-badge UNKNOWN" data-url="${p.url}">UNKNOWN</span>
-              <button class="icon-btn" onclick="checkLiveStock('${provider}', '${encodeURIComponent(p.url)}')" title="Check stock live now">
+              <span class="status-badge ${statusClass(p.status)}" data-url="${esc(p.url)}">${esc(statusClass(p.status).replace('_', ' '))}</span>
+              <button class="icon-btn" onclick="checkLiveStock('${provider}', '${encArg(p.url)}')" title="Check stock live now">
                 <i data-lucide="refresh-cw" style="width:16px; height:16px;"></i>
               </button>
-              <button class="icon-btn danger-hover" onclick="removeProduct('${provider}', '${encodeURIComponent(p.url)}')" title="Delete from tracking">
+              <button class="icon-btn danger-hover" onclick="removeProduct('${provider}', '${encArg(p.url)}')" title="Delete from tracking">
                 <i data-lucide="trash-2" style="width:16px; height:16px;"></i>
               </button>
             </div>
@@ -1254,44 +1349,15 @@
         });
         
         lucide.createIcons();
-        updateRowStatusBadges(provider);
       } catch (err) {
         console.error(`Error loading products for ${provider}:`, err);
-      }
-    }
-
-    // Update row status badges from local tracker.db values indirectly or set custom status
-    async function updateRowStatusBadges(provider) {
-      try {
-        const res = await fetch('/history');
-        const data = await res.json();
-        
-        // Map history to get the latest status for each URL
-        const latestStates = {};
-        data.history.forEach(log => {
-          if (!latestStates[log.url]) {
-            latestStates[log.url] = log.status;
-          }
-        });
-        
-        // Find badges in DOM and replace status
-        document.querySelectorAll(`.products-list#${provider}-products-list .status-badge`).forEach(badge => {
-          const url = badge.getAttribute('data-url');
-          if (latestStates[url]) {
-            const status = latestStates[url];
-            badge.className = `status-badge ${status}`;
-            badge.textContent = status.replace('_', ' ');
-          }
-        });
-      } catch (err) {
-        console.error('Error updating status badges:', err);
       }
     }
 
     // Live single stock check
     async function checkLiveStock(provider, encodedUrl) {
       const url = decodeURIComponent(encodedUrl);
-      const rowBadge = document.querySelector(`.products-list .status-badge[data-url="${url}"]`);
+      const rowBadge = [...document.querySelectorAll('.products-list .status-badge')].find(b => b.dataset.url === url);
       if (rowBadge) {
         rowBadge.className = 'status-badge UNKNOWN';
         rowBadge.textContent = 'CHECKING...';
@@ -1309,9 +1375,8 @@
           loadHistory();
         } else {
           showToast(data.detail || 'Failed live stock scrape', 'error');
-          if (rowBadge) {
-            rowBadge.textContent = 'ERROR';
-          }
+          loadTrackedProducts(provider);
+          pollDaemonStatuses();
         }
       } catch (err) {
         showToast('Network error during live check', 'error');
@@ -1378,8 +1443,8 @@
               <span>${dateString} at ${timeString}</span>
             </div>
             <div class="history-content">
-              <span class="highlight">${productName}</span> is now 
-              <span style="color:${statusStyle}; font-weight:700;">${log.status.replace('_', ' ')}</span>
+              <span class="highlight">${esc(productName)}</span> is now 
+              <span style="color:${statusStyle}; font-weight:700;">${esc(log.status.replace('_', ' '))}</span>
             </div>
           `;
           container.appendChild(card);
@@ -1434,16 +1499,16 @@
             
             card.innerHTML = `
               <div class="search-item-body">
-                <h4>${item.name}</h4>
-                <p>${item.details || 'No detail metadata'}</p>
+                <h4>${esc(item.name)}</h4>
+                <p>${esc(item.details || 'No detail metadata')}</p>
                 <div>
-                  <span class="status-badge ${statusStyle}">${item.status}</span>
+                  <span class="status-badge ${statusStyle}">${esc(item.status)}</span>
                 </div>
               </div>
               <div style="margin-top: 1rem;">
                 ${isAlreadyTracked ? 
                   `<button class="btn btn-secondary btn-sm" style="width:100%" disabled>✓ Tracked</button>` :
-                  `<button class="btn btn-primary btn-sm" style="width:100%" onclick="addProductToTrack('${provider}', '${encodeURIComponent(item.name)}', '${encodeURIComponent(item.url)}', '${item.status}')">+ Track Item</button>`
+                  `<button class="btn btn-primary btn-sm" style="width:100%" onclick="addProductToTrack('${provider}', '${encArg(item.name)}', '${encArg(item.url)}', '${statusClass(item.status)}')">+ Track Item</button>`
                 }
               </div>
             `;
@@ -1451,6 +1516,7 @@
           });
         } else {
           showToast(data.detail || 'Search failed', 'error');
+          pollDaemonStatuses();
         }
       } catch (err) {
         loadingEl.style.display = 'none';
@@ -1505,7 +1571,7 @@
           const tag = document.createElement('span');
           tag.className = 'keyword-tag';
           tag.innerHTML = `
-            ${kw}
+            ${esc(kw)}
             <button onclick="removeKeyword('${provider}', ${idx})">×</button>
           `;
           container.appendChild(tag);
@@ -1576,60 +1642,172 @@
     }
 
     // Geolocation setup handlers
-    async function openLocationModal(provider) {
-      currentActiveSetupProvider = provider;
-      document.getElementById('modal-provider-name').textContent = provider.toUpperCase();
-      
-      showToast(`Launching headed browser setup for ${provider}...`);
-      
+    let setupPollTimer = null;
+    const SAVE_BUTTON_HTML = `<i data-lucide="save"></i> Save Location`;
+
+    function showSetupStatus(info) {
+      const box = document.getElementById('setup-status');
+      const blocked = info.state === 'blocked' || info.state === 'error';
+      box.textContent = info.message || '';
+      box.className = `setup-status ${blocked ? 'blocked' : (info.state === 'open' ? 'ok' : '')}`;
+      document.getElementById('save-location-btn').disabled = blocked;
+      document.getElementById('setup-report-btn').style.display = blocked ? '' : 'none';
+    }
+
+    function stopSetupPolling() {
+      if (setupPollTimer) clearInterval(setupPollTimer);
+      setupPollTimer = null;
+    }
+
+    async function pollSetupStatus() {
+      const provider = currentActiveSetupProvider;
+      if (!provider) return;
       try {
-        const res = await fetch(`/setup/${provider}`, { method: 'POST' });
-        const data = await res.json();
-        
-        if (res.ok) {
-          document.getElementById('location-modal').classList.add('active');
-        } else {
-          showToast(data.detail || 'Failed to open location setup session', 'error');
+        const res = await fetch(`/setup/${provider}/status`);
+        const info = await res.json();
+        if (provider !== currentActiveSetupProvider) return;
+        if (info.state === 'closed' || info.state === 'none') {
+          showToast(info.message || 'The browser window was closed.', 'error');
+          hideLocationModal();
+          return;
         }
+        showSetupStatus(info);
       } catch (err) {
-        showToast('Network error launching location browser', 'error');
+        console.error('Error reading setup status:', err);
       }
     }
 
-    function closeLocationModal() {
+    async function openLocationModal(provider) {
+      currentActiveSetupProvider = provider;
+      document.getElementById('modal-provider-name').textContent = provider.toUpperCase();
+      showSetupStatus({ state: 'starting', message: 'Opening the browser...' });
+      document.getElementById('location-modal').classList.add('active');
+
+      try {
+        const res = await fetch(`/setup/${provider}`, { method: 'POST' });
+        const data = await res.json();
+
+        if (res.ok) {
+          showSetupStatus(data);
+          stopSetupPolling();
+          setupPollTimer = setInterval(pollSetupStatus, 2000);
+        } else {
+          showToast(data.detail || 'Failed to open location setup session', 'error');
+          hideLocationModal();
+        }
+      } catch (err) {
+        showToast('Network error launching location browser', 'error');
+        hideLocationModal();
+      }
+    }
+
+    function hideLocationModal() {
+      stopSetupPolling();
       document.getElementById('location-modal').classList.remove('active');
       currentActiveSetupProvider = null;
     }
 
+    async function closeLocationModal() {
+      const provider = currentActiveSetupProvider;
+      hideLocationModal();
+      if (!provider) return;
+      try {
+        await fetch(`/setup/${provider}/cancel`, { method: 'POST' });
+      } catch (err) {
+        console.error('Error closing setup window:', err);
+      }
+    }
+
     async function saveLocationState() {
       if (!currentActiveSetupProvider) return;
-      
+
       const saveBtn = document.getElementById('save-location-btn');
       saveBtn.disabled = true;
-      saveBtn.innerHTML = `<i data-lucide="loader-2" class="spinner"></i> Saving cookies...`;
+      saveBtn.innerHTML = `<i data-lucide="loader-2" class="spinner"></i> Saving...`;
       lucide.createIcons();
-      
+
       try {
         const res = await fetch(`/setup/${currentActiveSetupProvider}/save`, { method: 'POST' });
         const data = await res.json();
-        
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = `<i data-lucide="save"></i> Save & Save State Context`;
-        lucide.createIcons();
-        
+
         if (res.ok) {
-          showToast(`Location context successfully configured for ${currentActiveSetupProvider.toUpperCase()}!`);
-          closeLocationModal();
+          showToast(`Location saved for ${currentActiveSetupProvider.toUpperCase()}!`);
+          hideLocationModal();
           refreshAllStats();
         } else {
           showToast(data.detail || 'Failed to save location details', 'error');
         }
       } catch (err) {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = `<i data-lucide="save"></i> Save & Save State Context`;
-        lucide.createIcons();
-        showToast('Network error closing setup session', 'error');
+        showToast('Network error saving the location', 'error');
       }
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = SAVE_BUTTON_HTML;
+      lucide.createIcons();
+    }
+
+    // Problem reports
+    let currentReport = null;
+    let reportContext = '';
+    let reportRefreshTimer = null;
+
+    async function refreshReport() {
+      const note = document.getElementById('report-note').value;
+      try {
+        const res = await fetch('/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note, context: reportContext })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        currentReport = await res.json();
+        document.getElementById('report-text').value = currentReport.text;
+      } catch (err) {
+        showToast('Could not build the report', 'error');
+      }
+    }
+
+    function queueReportRefresh() {
+      clearTimeout(reportRefreshTimer);
+      reportRefreshTimer = setTimeout(refreshReport, 300);
+    }
+
+    function openReportModal(context) {
+      reportContext = context;
+      document.getElementById('report-note').value = '';
+      document.getElementById('report-text').value = 'Collecting details...';
+      document.getElementById('report-modal').classList.add('active');
+      refreshReport();
+    }
+
+    function closeReportModal() {
+      document.getElementById('report-modal').classList.remove('active');
+    }
+
+    async function sendReport() {
+      clearTimeout(reportRefreshTimer);
+      await refreshReport();
+      if (currentReport) window.open(currentReport.github_url, '_blank', 'noopener');
+    }
+
+    async function copyReport() {
+      const area = document.getElementById('report-text');
+      try {
+        await navigator.clipboard.writeText(area.value);
+      } catch (err) {
+        // navigator.clipboard is missing over plain http on another device.
+        area.select();
+        document.execCommand('copy');
+      }
+      showToast('Report copied');
+    }
+
+    function downloadReport() {
+      const blob = new Blob([document.getElementById('report-text').value], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'tracker-report.txt';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     }
   </script>
 </body>

@@ -81,3 +81,22 @@ Because stock levels are different for every neighborhood, the tracker must know
 ### Step 3: Turn on Monitoring
 1. Click the purple **Start All Trackers** button at the top right of the page.
 2. The tracker is now active! It will watch your items in the background and trigger desktop notifications/Telegram alerts the moment they come back in stock.
+
+---
+
+## 🛑 If Blinkit or Zepto Shows "Access Denied"
+
+The site has refused your connection. It is usually about your network, not your settings.
+
+1. Turn off any VPN or proxy.
+2. Try a different network, such as a phone hotspot.
+3. Install **Google Chrome** if you don't have it. Location Setup uses it automatically.
+4. Wait 30 to 60 minutes, then click **Location Setup** again.
+
+While a site is refusing the tracker, checks pause on their own and resume later. Repeating them right away would make the block last longer.
+
+## 🚩 Report a Problem
+
+Click **Report a problem** at the top of the dashboard. You can read everything before sending it, and it never includes your cookies, address, IP address or Telegram details. It opens a GitHub issue. If you don't have a GitHub account, click **Copy text** and send it to the developer another way.
+
+From a terminal, run `python tracker_core.py --report`.

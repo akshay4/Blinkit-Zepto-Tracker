@@ -4,6 +4,7 @@ import sqlite3
 import json
 
 def reset_all():
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print("========================================================")
     print("          Blinkit & Zepto Stock Tracker Reset           ")
     print("========================================================\n")
@@ -31,7 +32,7 @@ def reset_all():
             print(f"❌ Could not delete {db_file} (might be locked): {e}")
             
     # 2. Delete state files (cookies/geolocation)
-    state_files = ["state.json", "zepto_state.json"]
+    state_files = ["state.json", "zepto_state.json", "state.json.meta.json", "zepto_state.json.meta.json"]
     for sf in state_files:
         if os.path.exists(sf):
             try:
@@ -71,6 +72,11 @@ def reset_all():
             print("✔️ Cleared screenshots/ directory")
         except Exception as e:
             print(f"❌ Could not clear screenshots directory: {e}")
+
+    # 5. Clear recorded problems and block timers
+    if os.path.isdir("diagnostics"):
+        shutil.rmtree("diagnostics", ignore_errors=True)
+        print("✔️ Cleared diagnostics/ directory")
 
     print("\n✨ Clean reset complete! You can now run run_dashboard.bat to set up location and start fresh.")
 
