@@ -17,12 +17,12 @@ if hasattr(sys.stderr, "reconfigure"):
 import json
 import time
 import random
-import sqlite3
 import argparse
 import urllib.parse
 from datetime import datetime
-import requests
 from plyer import notification
+
+import tracker_core as core
 
 # Try importing Rich for nice formatting, fallback to print if not installed yet
 try:
@@ -39,10 +39,12 @@ except ImportError:
             print(*args, **kwargs)
     console = SimpleConsole()
 
-DB_FILE = "tracker.db"
-STATE_FILE = "state.json"
-CONFIG_FILE = "config.json"
-SCREENSHOT_DIR = "screenshots"
+PROVIDER = "blinkit"
+DB_FILE = core.path("tracker.db")
+STATE_FILE = core.path("state.json")
+CONFIG_FILE = core.path("config.json")
+SCREENSHOT_DIR = core.path("screenshots")
+OUT_OF_STOCK_PATTERNS = ['out of stock', 'notify me', 'temporarily unavailable', 'currently unavailable', 'coming soon']
 
 # Ensure screenshots directory exists
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -50,105 +52,30 @@ os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 def init_db():
     """Initializes the sqlite database to track stock status changes."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS product_status (
-            url TEXT PRIMARY KEY,
-            name TEXT,
-            status TEXT,
-            last_checked TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT,
-            status TEXT,
-            timestamp TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def get_previous_status(url):
-    """Retrieves the last known status of a product from the database."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT status FROM product_status WHERE url = ?", (url,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    core.init_db(DB_FILE)
 
 
 def update_status(url, name, status):
     """Updates the product status and logs to history if it changed."""
-    prev_status = get_previous_status(url)
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-
-    if prev_status is None:
-        # First time tracking
-        cursor.execute(
-            "INSERT INTO product_status (url, name, status, last_checked) VALUES (?, ?, ?, ?)",
-            (url, name, status, now)
-        )
-        cursor.execute(
-            "INSERT INTO status_history (url, status, timestamp) VALUES (?, ?, ?)",
-            (url, status, now)
-        )
-    elif prev_status != status:
-        # Status changed
-        cursor.execute(
-            "UPDATE product_status SET name = ?, status = ?, last_checked = ? WHERE url = ?",
-            (name, status, now, url)
-        )
-        cursor.execute(
-            "INSERT INTO status_history (url, status, timestamp) VALUES (?, ?, ?)",
-            (url, status, now)
-        )
-    else:
-        # Just update last checked time
-        cursor.execute(
-            "UPDATE product_status SET last_checked = ? WHERE url = ?",
-            (now, url)
-        )
-
-    conn.commit()
-    conn.close()
-    return prev_status
+    return core.update_status(DB_FILE, url, name, status)
 
 
 def load_config():
-    """Loads settings from config.json."""
-    if not os.path.exists(CONFIG_FILE):
-        console.log(f"[bold red]Error:[/] {CONFIG_FILE} not found. Please create it or copy the default template.", style="bold red")
-        sys.exit(1)
-    with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+    """Loads this provider's settings."""
+    return core.load_config(CONFIG_FILE)
 
 
 def add_to_config(name, url):
-    """Utility to write a product URL to config.json."""
-    config = load_config()
-    products = config.get("products", [])
-    
-    # Check if URL already tracked
-    if any(p["url"] == url for p in products):
-        console.print(f"[yellow]Product is already being tracked:[/] [cyan]{name}[/]")
-        return
-        
-    products.append({
-        "name": name,
-        "url": url
-    })
-    config["products"] = products
-    
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
-        
+    """Adds a product to this provider's tracking list."""
+    with core.config_lock:
+        config = load_config()
+        products = config.get("products", [])
+        if any(p["url"] == url for p in products):
+            console.print(f"[yellow]Product is already being tracked:[/] [cyan]{name}[/]")
+            return
+        products.append({"name": name, "url": url})
+        config["products"] = products
+        core.save_config(CONFIG_FILE, config)
     console.print(f"[bold green]Success![/] Added [cyan]{name}[/] to your tracking list.")
 
 
@@ -198,81 +125,56 @@ def parse_selection_input(input_str, max_val):
     return sorted(list(selected_indices))
 
 
+ETA_LINE = re.compile(r"^\d+\s*MINS?$", re.I)
+NON_NAME_LINES = {"ADD", "OUT OF STOCK", "CLOSED", "OFF"}
+OFF_BADGE = re.compile(r"\bOFF\b", re.I)
+
+
+def parse_search_card(cid, text):
+    """Turns one result card's text into an item, or None if it has no product name."""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    name = next((l for l in lines if not ETA_LINE.match(l) and l.upper() not in NON_NAME_LINES and not OFF_BADGE.search(l)), None)
+    if not name:
+        return None
+
+    qty = ""
+    price = ""
+    for line in lines:
+        if "₹" in line:
+            price = line.replace("₹", "Rs. ")
+        elif line != name and not ETA_LINE.match(line) and line.upper() not in NON_NAME_LINES and not OFF_BADGE.search(line):
+            qty = line
+    details = f"{qty} | {price}" if qty and price else (price or qty)
+
+    card_lower = text.lower()
+    status = "IN_STOCK"
+    if any(p in card_lower for p in ["out of stock", "notify me", "coming soon", "temporarily unavailable", "currently unavailable", "closed"]):
+        status = "OUT_OF_STOCK"
+    return {"name": name, "details": details.strip(" |"), "id": cid, "status": status}
+
+
 def search_products(page, query):
-    """Searches for products and returns parsed results."""
+    """Searches for products and returns parsed results. Raises core.BlockedError if refused."""
     search_url = f"https://blinkit.com/s/?q={urllib.parse.quote(query)}"
     console.log(f"Searching for [cyan]'{query}'[/] (location-aware)...")
-    
+
     found_items = []
     try:
-        page.goto(search_url, wait_until="load", timeout=20000)
-        try:
-            # Wait dynamically for the product cards to render (much faster than a hard sleep)
-            page.wait_for_selector("div[role='button'][id]", state="visible", timeout=8000)
-            page.wait_for_timeout(500)  # Small settle buffer
-        except Exception:
-            time.sleep(3.0)  # Fallback sleep if selector fails
-        
-        # Find all product card divs
-        cards = page.locator("div[role='button']").all()
-        
+        core.open_search(page, PROVIDER, search_url, "div[role='button'][id]", selector_timeout=8000)
+        cards = page.evaluate("""() => [...document.querySelectorAll("div[role='button'][id]")]
+            .filter(c => /^[0-9]+$/.test(c.id)).map(c => ({id: c.id, text: c.innerText}))""")
         for card in cards:
-            try:
-                cid = card.get_attribute("id")
-                # Verify it's a numeric ID (Blinkit product IDs are numbers)
-                if not cid or not cid.isdigit():
-                    continue
-                
-                # Extract text components
-                text = card.inner_text().strip()
-                lines = [l.strip() for l in text.split("\n") if l.strip()]
-                if not lines:
-                    continue
-                
-                # Find product name
-                name_candidate = None
-                for line in lines:
-                    if "MINS" in line.upper() or "MIN" in line.upper():
-                        continue
-                    if line.upper() in ["ADD", "OUT OF STOCK", "CLOSED", "OFF"]:
-                        continue
-                    name_candidate = line
-                    break
-                    
-                if not name_candidate:
-                    continue
-                    
-                # Try to find quantity and price
-                qty = ""
-                price = ""
-                for line in lines:
-                    if "₹" in line:
-                        price = line.replace("₹", "Rs. ")
-                    elif line != name_candidate and not any(k in line.upper() for k in ["MINS", "MIN", "ADD", "OUT OF STOCK", "CLOSED", "OFF"]):
-                        qty = line
-                        
-                details = f"{qty} | {price}" if qty and price else (price or qty)
-                # Remove trailing "ADD" or "OFF"
-                details = details.replace("ADD", "").strip(" |")
-                
-                # Determine stock status
-                card_lower = text.lower()
-                status = "IN_STOCK"
-                if any(p in card_lower for p in ["out of stock", "notify me", "coming soon", "temporarily unavailable", "currently unavailable", "closed"]):
-                    status = "OUT_OF_STOCK"
-                
-                found_items.append({
-                    "name": name_candidate,
-                    "details": details,
-                    "id": cid,
-                    "status": status,
-                    "locator_index": len(found_items)
-                })
-            except Exception:
-                continue
+            item = parse_search_card(card["id"], card["text"].strip())
+            if item:
+                item["locator_index"] = len(found_items)
+                found_items.append(item)
+        core.finish_search(page, PROVIDER, search_url, len(found_items))
+    except core.BlockedError:
+        raise
     except Exception as e:
-        console.log(f"[red]Error during search execution:[/] {e}", style="red")
-        
+        console.log(f"[red]Error during search execution:[/] {core.scrub(str(e))[:200]}", style="red")
+        core.record_incident(PROVIDER, "page_error", "search", url=search_url, snippet=str(e))
+
     return found_items
 
 
@@ -319,13 +221,7 @@ def run_add_item():
     
     with sync_playwright() as p:
         console.log("Launching headless browser...")
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         found_items = search_products(page, query)
         browser.close()
@@ -402,23 +298,17 @@ def run_keyword_check_wizard():
     
     with sync_playwright() as p:
         console.log("Launching headless browser...")
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         all_untracked_items = []
-        already_tracked_urls = {p["url"] for p in config.get("products", [])}
+        already_tracked = {core.product_key(p["url"]) for p in config.get("products", [])}
         
         for keyword in keywords:
             found_items = search_products(page, keyword)
             for item in found_items:
                 slug = slugify(item["name"])
                 product_url = f"https://blinkit.com/prn/{slug}/prid/{item['id']}"
-                if product_url not in already_tracked_urls:
+                if core.product_key(product_url) not in already_tracked:
                     all_untracked_items.append({
                         "name": item["name"],
                         "details": item["details"],
@@ -476,54 +366,25 @@ def run_keyword_check_wizard():
 
 def send_telegram_notification(product_name, old_status, new_status, url, telegram_config):
     """Sends a Telegram message alert."""
-    if not telegram_config.get("enabled"):
-        return
-
-    bot_token = telegram_config.get("bot_token")
-    chat_id = telegram_config.get("chat_id")
-
-    if not bot_token or not chat_id or "YOUR_" in bot_token:
-        console.log("[yellow]Warning:[/] Telegram notifications are enabled, but credentials are not configured.", style="yellow")
-        return
-
     emoji = "🟢" if new_status == "IN_STOCK" else "🔴"
     text = (
         f"{emoji} *Blinkit Stock Alert* {emoji}\n\n"
-        f"*Product:* {product_name}\n"
+        f"*Product:* {core.markdown_escape(product_name)}\n"
         f"*Status changed:* `{old_status or 'NEW'}` ➡️ `{new_status}`\n\n"
         f"[View Product on Blinkit]({url})"
     )
-
-    telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False
-    }
-
-    try:
-        response = requests.post(telegram_url, json=payload, timeout=10)
-        if response.status_code != 200:
-            console.log(f"[red]Telegram API Error:[/] HTTP {response.status_code} - {response.text}", style="red")
-    except Exception as e:
-        console.log(f"[red]Failed to send Telegram notification:[/] {e}", style="red")
+    core.send_telegram(telegram_config, text, console.log, disable_preview=False)
 
 
 def send_desktop_notification(product_name, new_status):
     """Triggers a local OS notification."""
-    title = "🛒 Blinkit Stock Alert!"
-    message = f"'{product_name}' is now IN STOCK! Quick, order before it runs out." if new_status == "IN_STOCK" else f"'{product_name}' has gone OUT OF STOCK."
-    
-    try:
-        notification.notify(
-            title=title,
-            message=message,
-            app_name="Blinkit Stock Tracker",
-            timeout=10
-        )
-    except Exception as e:
-        console.log(f"[yellow]Failed to trigger desktop notification:[/] {e}", style="yellow")
+    if new_status == "IN_STOCK":
+        title, message = "🛒 Blinkit Stock Alert!", f"'{product_name}' is now IN STOCK! Quick, order before it runs out."
+    elif new_status == "OUT_OF_STOCK":
+        title, message = "🛒 Blinkit Stock Alert!", f"'{product_name}' has gone OUT OF STOCK."
+    else:
+        title, message = "🔍 New Products Found!", f"{product_name}: new matching items were found."
+    core.send_desktop(title, message, "Blinkit Stock Tracker", console.log)
 
 
 def trigger_notifications(product_name, old_status, new_status, url, config):
@@ -553,112 +414,64 @@ def run_setup():
     input("Press Enter to launch the browser...")
 
     with sync_playwright() as p:
-        # Launch headed chromium browser
-        browser = p.chromium.launch(headless=False)
-        # Create context
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        
+        browser, context, label = core.launch_setup_browser(p)
         page = context.new_page()
-        console.log("Navigating to Blinkit...")
-        page.goto("https://blinkit.com")
-        
+        console.log(f"Navigating to Blinkit using {label}...")
+        try:
+            response = page.goto("https://blinkit.com", wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(2000)
+            kind = core.classify_block(core.inspect_page(page), response.status if response else None)
+        except Exception as e:
+            kind = None
+            console.print(f"[yellow]The page did not finish loading:[/] {core.scrub(str(e))[:200]}")
+        if kind and kind != "challenge":
+            error = core.register_block(page, PROVIDER, kind, "location setup", core.inspect_page(page), None)
+            console.print(f"\n[bold red]{error.user_message}[/]")
+            console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+            browser.close()
+            sys.exit(1)
+
         console.print("\n[bold yellow]Browser is open. Go ahead and select your location on Blinkit.[/]")
-        input("Press Enter here AFTER you have successfully set your location in the browser...")
-        
-        # Save storage state (cookies, local storage, session storage)
-        context.storage_state(path=STATE_FILE)
+        while True:
+            input("Press Enter here AFTER you have successfully set your location in the browser...")
+            try:
+                core.save_session(context, page, PROVIDER, STATE_FILE, label)
+                break
+            except core.SetupRefused as e:
+                console.print(f"[bold red]Not saved:[/] {e}")
         console.log(f"[bold green]Success![/] Session state saved to [bold cyan]{STATE_FILE}[/]")
-        
+
         browser.close()
 
 
 def check_product_stock(page, product):
-    """Loads product page and parses whether it's in stock or out of stock."""
-    name = product["name"]
-    url = product["url"]
-    
-    try:
-        console.log(f"Checking [cyan]{name}[/]...")
-        # Navigate to product page
-        page.goto(url, wait_until="load", timeout=30000)
-        
-        # Sleep a bit to allow animations and dynamic content to finish loading
-        time.sleep(random.uniform(2.0, 4.0))
-        
-        # Take screenshot for debugging/verification
-        clean_name = "".join([c if c.isalnum() else "_" for c in name])
-        screenshot_path = os.path.join(SCREENSHOT_DIR, f"{clean_name}_latest.png")
-        page.screenshot(path=screenshot_path)
-        
-        # Check if page loaded successfully (e.g., contains some headers or elements)
-        # Blinkit pages typically have product titles in h1 or h2 elements.
-        h1_elements = page.locator("h1").all_text_contents()
-        if not h1_elements:
-            console.log(f"[yellow]Warning:[/] No <h1> tags found on page. Page might still be loading or blocked by CAPTCHA. Saved screenshot to {screenshot_path}.", style="yellow")
-            
-        # Parse stock status using locator heuristic
-        # Heuristic 1: Check for "Out of Stock", "Notify Me", etc.
-        out_of_stock_patterns = [
-            "out of stock", 
-            "notify me", 
-            "temporarily unavailable", 
-            "currently unavailable",
-            "coming soon"
-        ]
-        
-        is_out_of_stock = False
-        for pattern in out_of_stock_patterns:
-            locator = page.get_by_text(pattern, exact=False)
-            # Check if any matching element is visible
-            for i in range(locator.count()):
-                if locator.nth(i).is_visible():
-                    is_out_of_stock = True
-                    console.log(f"Found stockout indicator matching: [italic]{pattern}[/]")
-                    break
-            if is_out_of_stock:
-                break
-                
-        # Heuristic 2: Check for presence of "ADD" button
-        # Usually it is a button or div containing "ADD" (often uppercase)
-        has_add_button = False
-        add_locator = page.get_by_text("ADD", exact=True)
-        for i in range(add_locator.count()):
-            if add_locator.nth(i).is_visible():
-                has_add_button = True
-                break
-                
-        if not has_add_button:
-            # Check lowercase or mixed case ADD
-            add_locator_mixed = page.get_by_text("Add to cart", exact=False)
-            for i in range(add_locator_mixed.count()):
-                if add_locator_mixed.nth(i).is_visible():
-                    has_add_button = True
-                    break
-        
-        if is_out_of_stock:
-            return "OUT_OF_STOCK"
-        elif has_add_button:
-            return "IN_STOCK"
-        else:
-            # Fallback check - search the text content of the page
-            page_text = page.content().lower()
-            if "add" in page_text and "out of stock" not in page_text:
-                return "IN_STOCK"
-            elif "out of stock" in page_text or "notify me" in page_text:
-                return "OUT_OF_STOCK"
-            else:
-                return "UNKNOWN"
-                
-    except Exception as e:
-        console.log(f"[red]Error scraping {name}:[/] {e}", style="red")
-        return "UNKNOWN"
+    """Returns the product's status. Raises core.BlockedError if the site refused the page."""
+    return core.check_stock(page, PROVIDER, product, OUT_OF_STOCK_PATTERNS, SCREENSHOT_DIR, console.log)
 
 
 def run_tracker(check_once=False):
-    """Main tracking loops."""
+    """Runs the tracker, pausing whenever the site refuses it."""
+    while True:
+        remaining = core.cooldown_remaining(PROVIDER)
+        if remaining:
+            console.print(f"[yellow]Blinkit recently refused this connection. Pausing for {remaining // 60} more minutes.[/]")
+            if check_once:
+                sys.exit(1)
+            time.sleep(min(remaining, 60))
+            continue
+        try:
+            _tracker_loop(check_once)
+            return
+        except core.BlockedError as e:
+            if check_once:
+                raise
+            console.print(f"[bold red]{e.user_message}[/]")
+            console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+            core.alert_blocked(PROVIDER, load_config(), e, console.log)
+
+
+def _tracker_loop(check_once=False):
+    """Main tracking loop."""
     # Ensure state file exists
     if not os.path.exists(STATE_FILE):
         console.print("[bold red]Error:[/] Session state file (`state.json`) not found.")
@@ -688,15 +501,7 @@ def run_tracker(check_once=False):
     notified_keyword_products = set()
     
     with sync_playwright() as p:
-        # Launch browser in headless mode
-        browser = p.chromium.launch(headless=True)
-        # Create browser context using saved session state
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         while True:
             # Reload config dynamically in case changes were made (e.g., via --keywords in another process)
@@ -752,7 +557,7 @@ def run_tracker(check_once=False):
             keywords = config.get("tracked_keywords", [])
             if keywords:
                 console.log("[bold magenta]Scanning tracked keywords in the background...[/]")
-                already_tracked_urls = {p["url"] for p in products}
+                already_tracked = {core.product_key(p["url"]) for p in products}
                 new_products_found = False
                 
                 for keyword in keywords:
@@ -760,7 +565,7 @@ def run_tracker(check_once=False):
                     for item in found_items:
                         slug = slugify(item["name"])
                         product_url = f"https://blinkit.com/prn/{slug}/prid/{item['id']}"
-                        if product_url not in already_tracked_urls:
+                        if core.product_key(product_url) not in already_tracked:
                             if product_url not in notified_keyword_products:
                                 notified_keyword_products.add(product_url)
                                 console.log(f"[bold yellow]New product matching keyword '{keyword}' found:[/] {item['name']}")
@@ -780,34 +585,21 @@ def run_tracker(check_once=False):
                             console.log(f"[yellow]Failed to trigger desktop notification:[/] {e}", style="yellow")
                     
                     # Telegram alert
-                    telegram_config = config.get("telegram", {})
-                    if telegram_config.get("enabled"):
-                        bot_token = telegram_config.get("bot_token")
-                        chat_id = telegram_config.get("chat_id")
-                        if bot_token and chat_id and "YOUR_" not in bot_token:
-                            text = (
-                                "🔍 *Blinkit Keyword Discovery Alert* 🔍\n\n"
-                                "New items matching your tracked keywords have been detected!\n\n"
-                                "Run `python blinkit_tracker.py --keywords` in your terminal to review and add them."
-                            )
-                            telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                            payload = {
-                                "chat_id": chat_id,
-                                "text": text,
-                                "parse_mode": "Markdown"
-                            }
-                            try:
-                                requests.post(telegram_url, json=payload, timeout=10)
-                            except Exception as e:
-                                console.log(f"[red]Failed to send Telegram keyword notification:[/] {e}", style="red")
+                    core.send_telegram(
+                        config.get("telegram", {}),
+                        "🔍 *Blinkit Keyword Discovery Alert* 🔍\n\n"
+                        "New items matching your tracked keywords have been detected!\n\n"
+                        "Run `python blinkit_tracker.py --keywords` in your terminal to review and add them.",
+                        console.log,
+                    )
                                 
             if check_once:
                 break
                 
-            interval = config.get("check_interval_minutes", 10)
+            interval = core.check_interval_minutes(config)
             # Add small random jitter (up to 1 minute) to check interval to avoid strict pattern detection
             jitter_seconds = random.randint(-30, 30)
-            sleep_seconds = max(60, (interval * 60) + jitter_seconds)
+            sleep_seconds = int(max(60, (interval * 60) + jitter_seconds))
             
             console.log(f"Waiting [cyan]{sleep_seconds // 60}m {sleep_seconds % 60}s[/] before next check...")
             time.sleep(sleep_seconds)
@@ -823,11 +615,16 @@ if __name__ == "__main__":
     parser.add_argument("--check-once", action="store_true", help="Perform a single stock check check and exit.")
     args = parser.parse_args()
     
-    if args.setup:
-        run_setup()
-    elif args.add:
-        run_add_item()
-    elif args.keywords:
-        run_keyword_check_wizard()
-    else:
-        run_tracker(check_once=args.check_once)
+    try:
+        if args.setup:
+            run_setup()
+        elif args.add:
+            run_add_item()
+        elif args.keywords:
+            run_keyword_check_wizard()
+        else:
+            run_tracker(check_once=args.check_once)
+    except core.BlockedError as e:
+        console.print(f"[bold red]{e.user_message}[/]")
+        console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+        sys.exit(1)

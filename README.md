@@ -39,7 +39,7 @@ This tool solves this by simulating a real user at your exact location, constant
   * **OS Desktop Alerts**: Instant popups using the `plyer` notification system.
   * **Telegram Bot integration**: Custom markdown messages containing links to immediately purchase the product or review newly discovered keyword results.
 * **sqlite3 Database Storage**: Keeps a full log of historical status transitions in a local database (`tracker.db`) for analysis.
-* **Scrape Visual Verification**: Automatically takes and updates screenshots of monitored products under a `screenshots/` directory for visual verification and debugging.
+* **Scrape Visual Verification**: Saves a screenshot under `screenshots/` when a product's status could not be read, and under `diagnostics/` when a site refuses the tracker.
 * **Rich Console UI**: Features a beautiful terminal table showing current status, previous status, and checking timestamps.
 
 ---
@@ -230,7 +230,7 @@ python zepto_tracker.py --check-once
 * **SQLite Database (`tracker.db`)**: Stores persistent state. It has two tables:
   * `product_status`: Contains the last known status and timestamp for each product URL.
   * `status_history`: A log of every time a product transitioned between statuses (useful for charting stock trends over time).
-* **Screenshots (`screenshots/`)**: Saves a visual snapshot of the page during the last check. If a product status is reported incorrectly or fails, view the image in this directory to see if there is an address selector overlay, captcha, or site redesign.
+* **Screenshots (`screenshots/`)**: Saved only when a product's stock status could not be read, so you can see what the page showed.
 
 ---
 

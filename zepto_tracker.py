@@ -17,12 +17,12 @@ if hasattr(sys.stderr, "reconfigure"):
 import json
 import time
 import random
-import sqlite3
 import argparse
 import urllib.parse
 from datetime import datetime
-import requests
 from plyer import notification
+
+import tracker_core as core
 
 # Try importing Rich for nice formatting, fallback to print if not installed yet
 try:
@@ -39,10 +39,12 @@ except ImportError:
             print(*args, **kwargs)
     console = SimpleConsole()
 
-DB_FILE = "tracker.db"
-STATE_FILE = "zepto_state.json"
-CONFIG_FILE = "zepto_config.json"
-SCREENSHOT_DIR = "screenshots"
+PROVIDER = "zepto"
+DB_FILE = core.path("tracker.db")
+STATE_FILE = core.path("zepto_state.json")
+CONFIG_FILE = core.path("zepto_config.json")
+SCREENSHOT_DIR = core.path("screenshots")
+OUT_OF_STOCK_PATTERNS = ['out of stock', 'notify me', 'temporarily unavailable', 'currently unavailable', 'coming soon', 'sold out', 'store closed', 'currently closed']
 
 # Ensure screenshots directory exists
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -50,105 +52,30 @@ os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 def init_db():
     """Initializes the sqlite database to track stock status changes."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS product_status (
-            url TEXT PRIMARY KEY,
-            name TEXT,
-            status TEXT,
-            last_checked TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT,
-            status TEXT,
-            timestamp TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def get_previous_status(url):
-    """Retrieves the last known status of a product from the database."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT status FROM product_status WHERE url = ?", (url,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    core.init_db(DB_FILE)
 
 
 def update_status(url, name, status):
     """Updates the product status and logs to history if it changed."""
-    prev_status = get_previous_status(url)
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-
-    if prev_status is None:
-        # First time tracking
-        cursor.execute(
-            "INSERT INTO product_status (url, name, status, last_checked) VALUES (?, ?, ?, ?)",
-            (url, name, status, now)
-        )
-        cursor.execute(
-            "INSERT INTO status_history (url, status, timestamp) VALUES (?, ?, ?)",
-            (url, status, now)
-        )
-    elif prev_status != status:
-        # Status changed
-        cursor.execute(
-            "UPDATE product_status SET name = ?, status = ?, last_checked = ? WHERE url = ?",
-            (name, status, now, url)
-        )
-        cursor.execute(
-            "INSERT INTO status_history (url, status, timestamp) VALUES (?, ?, ?)",
-            (url, status, now)
-        )
-    else:
-        # Just update last checked time
-        cursor.execute(
-            "UPDATE product_status SET last_checked = ? WHERE url = ?",
-            (now, url)
-        )
-
-    conn.commit()
-    conn.close()
-    return prev_status
+    return core.update_status(DB_FILE, url, name, status)
 
 
 def load_config():
-    """Loads settings from zepto_config.json."""
-    if not os.path.exists(CONFIG_FILE):
-        console.log(f"[bold red]Error:[/] {CONFIG_FILE} not found. Please create it or run setup first.", style="bold red")
-        sys.exit(1)
-    with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+    """Loads this provider's settings."""
+    return core.load_config(CONFIG_FILE)
 
 
 def add_to_config(name, url):
-    """Utility to write a product URL to zepto_config.json."""
-    config = load_config()
-    products = config.get("products", [])
-    
-    # Check if URL already tracked
-    if any(p["url"] == url for p in products):
-        console.print(f"[yellow]Product is already being tracked:[/] [cyan]{name}[/]")
-        return
-        
-    products.append({
-        "name": name,
-        "url": url
-    })
-    config["products"] = products
-    
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
-        
+    """Adds a product to this provider's tracking list."""
+    with core.config_lock:
+        config = load_config()
+        products = config.get("products", [])
+        if any(p["url"] == url for p in products):
+            console.print(f"[yellow]Product is already being tracked:[/] [cyan]{name}[/]")
+            return
+        products.append({"name": name, "url": url})
+        config["products"] = products
+        core.save_config(CONFIG_FILE, config)
     console.print(f"[bold green]Success![/] Added [cyan]{name}[/] to your tracking list.")
 
 
@@ -189,157 +116,83 @@ def parse_selection_input(input_str, max_val):
     return sorted(list(selected_indices))
 
 
+NON_NAME_LINES = {"ADD", "OUT OF STOCK", "CLOSED", "OFF", "COMING SOON"}
+OFF_BADGE = re.compile(r"\bOFF\b", re.I)
+RATING_COUNT = re.compile(r"^\(?[\d.,]+\s*[kKmM]?\)?$")
+QUANTITY_UNITS = ["ml", "ltr", " g", " kg", " pc", " pack", " s", " unit"]
+OUT_OF_STOCK_CARD_TEXT = ["out of stock", "notify me", "coming soon", "sold out", "store closed", "currently closed"]
+
+
+def _is_name_line(line):
+    return not (
+        "%" in line
+        or OFF_BADGE.search(line)
+        or line.upper() in NON_NAME_LINES
+        or "₹" in line
+        or "Rs." in line
+        or RATING_COUNT.match(line)
+    )
+
+
+def parse_search_anchor(full_url, text):
+    """Turns one result link's text into an item, or None if it has no product name."""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    name = next((l for l in lines if _is_name_line(l)), None)
+    if not name:
+        return None
+
+    qty = ""
+    price = ""
+    for line in lines:
+        if "₹" in line:
+            price = price or line.replace("₹", "Rs. ")  # The first price is the sale price.
+        elif line != name and any(unit in line.lower() for unit in QUANTITY_UNITS):
+            qty = line
+    details = f"{qty} | {price}" if qty and price else (price or qty)
+
+    card_lower = text.lower()
+    status = "OUT_OF_STOCK" if any(p in card_lower for p in OUT_OF_STOCK_CARD_TEXT) else "IN_STOCK"
+    return {"name": name, "details": details.replace("ADD", "").strip(" |"), "url": full_url, "status": status}
+
+
+def _is_broad_product_link(href):
+    return any(p in href for p in ["/pn/", "/p/", "/pip/"]) and not any(c in href for c in ["/cn/", "/categories", "/zepto-cafe"])
+
+
 def search_products(page, query):
-    """Searches for products and returns parsed results."""
+    """Searches for products and returns parsed results. Raises core.BlockedError if refused."""
     search_url = f"https://www.zepto.com/search?query={urllib.parse.quote(query)}"
     console.log(f"Searching for [cyan]'{query}'[/] (location-aware)...")
-    
+
     found_items = []
-    seen_urls = set()
     try:
-        page.goto(search_url, wait_until="load", timeout=30000)
-        
-        # Wait for search results to render (heuristic: look for data-testid or anchors containing product keywords)
-        try:
-            page.wait_for_selector("a[href*='/pvid/']", state="visible", timeout=10000)
-            page.wait_for_timeout(500)
-        except Exception:
-            time.sleep(3.0)  # Fallback sleep
-            
-        anchors = page.locator("a").all()
-        
-        for anchor in anchors:
-            try:
-                href = anchor.get_attribute("href") or ""
-                if not href or "/pvid/" not in href:
+        core.open_search(page, PROVIDER, search_url, "a[href*='/pvid/']")
+        anchors = page.evaluate("""() => [...document.querySelectorAll('a[href]')]
+            .map(a => ({href: a.getAttribute('href'), text: a.innerText}))""")
+
+        # Product links normally have /pvid/. The broader match is for when that layout changes.
+        for matches in (lambda href: "/pvid/" in href, _is_broad_product_link):
+            seen_urls = set()
+            for anchor in anchors:
+                href = anchor["href"] or ""
+                if not matches(href):
                     continue
-                
                 full_url = "https://www.zepto.com" + href if href.startswith("/") else href
                 if full_url in seen_urls:
                     continue
                 seen_urls.add(full_url)
-                
-                text = anchor.inner_text().strip()
-                lines = [l.strip() for l in text.split("\n") if l.strip()]
-                if not lines:
-                    continue
-                    
-                # Parse name, price, qty
-                name_candidate = None
-                for line in lines:
-                    # Skip discount badges, action buttons, ratings, and prices
-                    if "%" in line or "OFF" in line.upper():
-                        continue
-                    if line.upper() in ["ADD", "OUT OF STOCK", "CLOSED", "OFF", "COMING SOON"]:
-                        continue
-                    if "₹" in line or "Rs." in line:
-                        continue
-                    if line.replace(".", "", 1).isdigit() and len(line) <= 4:
-                        # Skip rating like 4.4
-                        continue
-                    if "(" in line and ")" in line:
-                        # Skip reviews like (7.7k)
-                        continue
-                    name_candidate = line
-                    break
-                    
-                if not name_candidate:
-                    continue
-                    
-                qty = ""
-                price = ""
-                for line in lines:
-                    if "₹" in line:
-                        if not price: # First price is the actual sale price
-                            price = line.replace("₹", "Rs. ")
-                    elif line != name_candidate and any(unit in line.lower() for unit in ["ml", "ltr", " g", " kg", " pc", " pack", " s", " unit"]):
-                        qty = line
-                        
-                details = f"{qty} | {price}" if qty and price else (price or qty)
-                details = details.replace("ADD", "").strip(" |")
-                
-                # Determine stock status
-                card_lower = text.lower()
-                status = "IN_STOCK"
-                if any(p in card_lower for p in ["out of stock", "notify me", "coming soon", "sold out", "store closed", "currently closed"]):
-                    status = "OUT_OF_STOCK"
-                
-                found_items.append({
-                    "name": name_candidate,
-                    "details": details,
-                    "url": full_url,
-                    "status": status
-                })
-            except Exception:
-                continue
-        
-        # Fallback if no /pvid/ URLs found (broad match)
-        if not found_items:
-            for anchor in anchors:
-                try:
-                    href = anchor.get_attribute("href") or ""
-                    if not href or not any(p in href for p in ["/pn/", "/p/", "/pip/"]):
-                        continue
-                    if any(cat in href for cat in ["/cn/", "/categories", "/zepto-cafe"]):
-                        continue
-                        
-                    full_url = "https://www.zepto.com" + href if href.startswith("/") else href
-                    if full_url in seen_urls:
-                        continue
-                    seen_urls.add(full_url)
-                    
-                    text = anchor.inner_text().strip()
-                    lines = [l.strip() for l in text.split("\n") if l.strip()]
-                    if not lines:
-                        continue
-                        
-                    name_candidate = None
-                    for line in lines:
-                        if "%" in line or "OFF" in line.upper():
-                            continue
-                        if line.upper() in ["ADD", "OUT OF STOCK", "CLOSED", "OFF", "COMING SOON"]:
-                            continue
-                        if "₹" in line or "Rs." in line:
-                            continue
-                        if line.replace(".", "", 1).isdigit() and len(line) <= 4:
-                            continue
-                        if "(" in line and ")" in line:
-                            continue
-                        name_candidate = line
-                        break
-                        
-                    if not name_candidate:
-                        continue
-                        
-                    qty = ""
-                    price = ""
-                    for line in lines:
-                        if "₹" in line:
-                            if not price:
-                                price = line.replace("₹", "Rs. ")
-                        elif line != name_candidate and any(unit in line.lower() for unit in ["ml", "ltr", " g", " kg", " pc", " pack", " s", " unit"]):
-                            qty = line
-                            
-                    details = f"{qty} | {price}" if qty and price else (price or qty)
-                    details = details.replace("ADD", "").strip(" |")
-                    
-                    # Determine stock status
-                    card_lower = text.lower()
-                    status = "IN_STOCK"
-                    if any(p in card_lower for p in ["out of stock", "notify me", "coming soon", "sold out", "store closed", "currently closed"]):
-                        status = "OUT_OF_STOCK"
-                    
-                    found_items.append({
-                        "name": name_candidate,
-                        "details": details,
-                        "url": full_url,
-                        "status": status
-                    })
-                except Exception:
-                    continue
+                item = parse_search_anchor(full_url, anchor["text"].strip())
+                if item:
+                    found_items.append(item)
+            if found_items:
+                break
+        core.finish_search(page, PROVIDER, search_url, len(found_items))
+    except core.BlockedError:
+        raise
     except Exception as e:
-        console.log(f"[red]Error during search execution:[/] {e}", style="red")
-        
+        console.log(f"[red]Error during search execution:[/] {core.scrub(str(e))[:200]}", style="red")
+        core.record_incident(PROVIDER, "page_error", "search", url=search_url, snippet=str(e))
+
     return found_items
 
 
@@ -387,13 +240,7 @@ def run_add_item():
     
     with sync_playwright() as p:
         console.log("Launching headless browser...")
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         found_items = search_products(page, query)
         browser.close()
@@ -465,13 +312,7 @@ def run_keyword_check_wizard():
     
     with sync_playwright() as p:
         console.log("Launching headless browser...")
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         all_untracked_items = []
         already_tracked_urls = {p["url"] for p in config.get("products", [])}
@@ -537,54 +378,25 @@ def run_keyword_check_wizard():
 
 def send_telegram_notification(product_name, old_status, new_status, url, telegram_config):
     """Sends a Telegram message alert."""
-    if not telegram_config.get("enabled"):
-        return
-
-    bot_token = telegram_config.get("bot_token")
-    chat_id = telegram_config.get("chat_id")
-
-    if not bot_token or not chat_id or "YOUR_" in bot_token:
-        console.log("[yellow]Warning:[/] Telegram notifications are enabled, but credentials are not configured.", style="yellow")
-        return
-
     emoji = "🟢" if new_status == "IN_STOCK" else "🔴"
     text = (
         f"{emoji} *Zepto Stock Alert* {emoji}\n\n"
-        f"*Product:* {product_name}\n"
+        f"*Product:* {core.markdown_escape(product_name)}\n"
         f"*Status changed:* `{old_status or 'NEW'}` ➡️ `{new_status}`\n\n"
         f"[View Product on Zepto]({url})"
     )
-
-    telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False
-    }
-
-    try:
-        response = requests.post(telegram_url, json=payload, timeout=10)
-        if response.status_code != 200:
-            console.log(f"[red]Telegram API Error:[/] HTTP {response.status_code} - {response.text}", style="red")
-    except Exception as e:
-        console.log(f"[red]Failed to send Telegram notification:[/] {e}", style="red")
+    core.send_telegram(telegram_config, text, console.log, disable_preview=False)
 
 
 def send_desktop_notification(product_name, new_status):
     """Triggers a local OS notification."""
-    title = "🛒 Zepto Stock Alert!"
-    message = f"'{product_name}' is now IN STOCK! Quick, order before it runs out." if new_status == "IN_STOCK" else f"'{product_name}' has gone OUT OF STOCK."
-    
-    try:
-        notification.notify(
-            title=title,
-            message=message,
-            app_name="Zepto Stock Tracker",
-            timeout=10
-        )
-    except Exception as e:
-        console.log(f"[yellow]Failed to trigger desktop notification:[/] {e}", style="yellow")
+    if new_status == "IN_STOCK":
+        title, message = "🛒 Zepto Stock Alert!", f"'{product_name}' is now IN STOCK! Quick, order before it runs out."
+    elif new_status == "OUT_OF_STOCK":
+        title, message = "🛒 Zepto Stock Alert!", f"'{product_name}' has gone OUT OF STOCK."
+    else:
+        title, message = "🔍 New Products Found!", f"{product_name}: new matching items were found."
+    core.send_desktop(title, message, "Zepto Stock Tracker", console.log)
 
 
 def trigger_notifications(product_name, old_status, new_status, url, config):
@@ -614,103 +426,63 @@ def run_setup():
     input("Press Enter to launch the browser...")
 
     with sync_playwright() as p:
-        # Launch headed chromium browser
-        browser = p.chromium.launch(headless=False)
-        # Create context
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        
+        browser, context, label = core.launch_setup_browser(p)
         page = context.new_page()
-        console.log("Navigating to Zepto...")
-        page.goto("https://www.zepto.com")
-        
+        console.log(f"Navigating to Zepto using {label}...")
+        try:
+            response = page.goto("https://www.zepto.com", wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(2000)
+            kind = core.classify_block(core.inspect_page(page), response.status if response else None)
+        except Exception as e:
+            kind = None
+            console.print(f"[yellow]The page did not finish loading:[/] {core.scrub(str(e))[:200]}")
+        if kind and kind != "challenge":
+            error = core.register_block(page, PROVIDER, kind, "location setup", core.inspect_page(page), None)
+            console.print(f"\n[bold red]{error.user_message}[/]")
+            console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+            browser.close()
+            sys.exit(1)
+
         console.print("\n[bold yellow]Browser is open. Go ahead and select your location on Zepto.[/]")
-        input("Press Enter here AFTER you have successfully set your location in the browser...")
-        
-        # Save storage state (cookies, local storage, session storage)
-        context.storage_state(path=STATE_FILE)
+        while True:
+            input("Press Enter here AFTER you have successfully set your location in the browser...")
+            try:
+                core.save_session(context, page, PROVIDER, STATE_FILE, label)
+                break
+            except core.SetupRefused as e:
+                console.print(f"[bold red]Not saved:[/] {e}")
         console.log(f"[bold green]Success![/] Session state saved to [bold cyan]{STATE_FILE}[/]")
-        
+
         browser.close()
 
 
 def check_product_stock(page, product):
-    """Loads product page and parses whether it's in stock or out of stock."""
-    name = product["name"]
-    url = product["url"]
-    
-    try:
-        console.log(f"Checking [cyan]{name}[/]...")
-        page.goto(url, wait_until="load", timeout=30000)
-        
-        # Sleep a bit to allow dynamic content to load
-        time.sleep(random.uniform(2.0, 4.0))
-        
-        # Take screenshot for debugging/verification
-        clean_name = "".join([c if c.isalnum() else "_" for c in name])
-        screenshot_path = os.path.join(SCREENSHOT_DIR, f"{clean_name}_latest.png")
-        page.screenshot(path=screenshot_path)
-        
-        # Heuristic 1: Check for out of stock patterns
-        out_of_stock_patterns = [
-            "out of stock", 
-            "notify me", 
-            "temporarily unavailable", 
-            "currently unavailable",
-            "coming soon",
-            "sold out",
-            "store closed",
-            "currently closed"
-        ]
-        
-        is_out_of_stock = False
-        for pattern in out_of_stock_patterns:
-            locator = page.get_by_text(pattern, exact=False)
-            for i in range(locator.count()):
-                if locator.nth(i).is_visible():
-                    is_out_of_stock = True
-                    console.log(f"Found stockout indicator matching: [italic]{pattern}[/]")
-                    break
-            if is_out_of_stock:
-                break
-                
-        # Heuristic 2: Check for presence of "ADD" button
-        has_add_button = False
-        add_locator = page.get_by_text("ADD", exact=True)
-        for i in range(add_locator.count()):
-            if add_locator.nth(i).is_visible():
-                has_add_button = True
-                break
-                
-        if not has_add_button:
-            add_locator_mixed = page.get_by_text("Add to cart", exact=False)
-            for i in range(add_locator_mixed.count()):
-                if add_locator_mixed.nth(i).is_visible():
-                    has_add_button = True
-                    break
-        
-        if is_out_of_stock:
-            return "OUT_OF_STOCK"
-        elif has_add_button:
-            return "IN_STOCK"
-        else:
-            # Fallback check - search the text content of the page
-            page_text = page.content().lower()
-            if "add" in page_text and "out of stock" not in page_text:
-                return "IN_STOCK"
-            elif "out of stock" in page_text or "notify me" in page_text:
-                return "OUT_OF_STOCK"
-            else:
-                return "UNKNOWN"
-                
-    except Exception as e:
-        console.log(f"[red]Error scraping {name}:[/] {e}", style="red")
-        return "UNKNOWN"
+    """Returns the product's status. Raises core.BlockedError if the site refused the page."""
+    return core.check_stock(page, PROVIDER, product, OUT_OF_STOCK_PATTERNS, SCREENSHOT_DIR, console.log)
 
 
 def run_tracker(check_once=False):
+    """Runs the tracker, pausing whenever the site refuses it."""
+    while True:
+        remaining = core.cooldown_remaining(PROVIDER)
+        if remaining:
+            console.print(f"[yellow]Zepto recently refused this connection. Pausing for {remaining // 60} more minutes.[/]")
+            if check_once:
+                sys.exit(1)
+            time.sleep(min(remaining, 60))
+            continue
+        try:
+            _tracker_loop(check_once)
+            return
+        except core.BlockedError as e:
+            if check_once:
+                raise
+            console.print(f"[bold red]{e.user_message}[/]")
+            console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+            core.alert_blocked(PROVIDER, load_config(), e, console.log)
+
+
+def _tracker_loop(check_once=False):
     """Main tracking loop."""
     # Ensure state file exists
     if not os.path.exists(STATE_FILE):
@@ -741,13 +513,7 @@ def run_tracker(check_once=False):
     notified_keyword_products = set()
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_FILE,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+        browser, _context, page = core.open_tracking_page(p, STATE_FILE)
         
         while True:
             # Reload config dynamically in case changes were made (e.g., via --keywords in another process)
@@ -829,33 +595,20 @@ def run_tracker(check_once=False):
                             console.log(f"[yellow]Failed to trigger desktop notification:[/] {e}", style="yellow")
                     
                     # Telegram alert
-                    telegram_config = config.get("telegram", {})
-                    if telegram_config.get("enabled"):
-                        bot_token = telegram_config.get("bot_token")
-                        chat_id = telegram_config.get("chat_id")
-                        if bot_token and chat_id and "YOUR_" not in bot_token:
-                            text = (
-                                "🔍 *Zepto Keyword Discovery Alert* 🔍\n\n"
-                                "New items matching your tracked keywords have been detected!\n\n"
-                                "Run `python zepto_tracker.py --keywords` in your terminal to review and add them."
-                            )
-                            telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                            payload = {
-                                "chat_id": chat_id,
-                                "text": text,
-                                "parse_mode": "Markdown"
-                            }
-                            try:
-                                requests.post(telegram_url, json=payload, timeout=10)
-                            except Exception as e:
-                                console.log(f"[red]Failed to send Telegram keyword notification:[/] {e}", style="red")
+                    core.send_telegram(
+                        config.get("telegram", {}),
+                        "🔍 *Zepto Keyword Discovery Alert* 🔍\n\n"
+                        "New items matching your tracked keywords have been detected!\n\n"
+                        "Run `python zepto_tracker.py --keywords` in your terminal to review and add them.",
+                        console.log,
+                    )
                                 
             if check_once:
                 break
                 
-            interval = config.get("check_interval_minutes", 10)
+            interval = core.check_interval_minutes(config)
             jitter_seconds = random.randint(-30, 30)
-            sleep_seconds = max(60, (interval * 60) + jitter_seconds)
+            sleep_seconds = int(max(60, (interval * 60) + jitter_seconds))
             
             console.log(f"Waiting [cyan]{sleep_seconds // 60}m {sleep_seconds % 60}s[/] before next check...")
             time.sleep(sleep_seconds)
@@ -871,11 +624,16 @@ if __name__ == "__main__":
     parser.add_argument("--check-once", action="store_true", help="Perform a single stock check check and exit.")
     args = parser.parse_args()
     
-    if args.setup:
-        run_setup()
-    elif args.add:
-        run_add_item()
-    elif args.keywords:
-        run_keyword_check_wizard()
-    else:
-        run_tracker(check_once=args.check_once)
+    try:
+        if args.setup:
+            run_setup()
+        elif args.add:
+            run_add_item()
+        elif args.keywords:
+            run_keyword_check_wizard()
+        else:
+            run_tracker(check_once=args.check_once)
+    except core.BlockedError as e:
+        console.print(f"[bold red]{e.user_message}[/]")
+        console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+        sys.exit(1)

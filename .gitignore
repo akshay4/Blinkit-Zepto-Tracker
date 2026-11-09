@@ -39,3 +39,6 @@ screenshots/Hot_Wheels_Worldwide_Basic_HW8_Crate_Car_Toy_for_Kids___Collectors_l
 config.json
 zepto_config.json
 __pycache__/api.cpython-311.pyc
+diagnostics/
+*.meta.json
+*.tmp
