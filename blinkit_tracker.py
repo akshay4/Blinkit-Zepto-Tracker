@@ -14,7 +14,6 @@ if hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 
-import json
 import time
 import random
 import argparse
@@ -28,7 +27,6 @@ import tracker_core as core
 try:
     from rich.console import Console
     from rich.table import Table
-    from rich.live import Live
     from rich import box
     console = Console()
 except ImportError:
@@ -166,7 +164,6 @@ def search_products(page, query):
         for card in cards:
             item = parse_search_card(card["id"], card["text"].strip())
             if item:
-                item["locator_index"] = len(found_items)
                 found_items.append(item)
         core.finish_search(page, PROVIDER, search_url, len(found_items))
     except core.BlockedError:
@@ -577,7 +574,7 @@ def _tracker_loop(check_once=False):
                         try:
                             notification.notify(
                                 title="🔍 New Products Found!",
-                                message=f"New items matching your tracked keywords have been discovered. Run with --keywords to review and track them.",
+                                message="New items matching your tracked keywords have been discovered. Run with --keywords to review and track them.",
                                 app_name="Blinkit Stock Tracker",
                                 timeout=10
                             )

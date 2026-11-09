@@ -2,7 +2,6 @@ import ipaddress
 import os
 import queue
 import random
-import re
 import shutil
 import sqlite3
 import threading
@@ -342,7 +341,7 @@ class SetupSession:
             else:
                 self._set("open", "When your delivery address is showing correctly, save below.")
 
-    def _handle(self, command: dict, context, browser, label: str) -> bool:
+    def _handle(self, command: dict, context, label: str) -> bool:
         """Runs one command and returns True when the window should close."""
         if command["name"] == "close":
             command["result"]["ok"] = True
@@ -395,7 +394,7 @@ class SetupSession:
                     try:
                         while True:
                             command = self.commands.get_nowait()
-                            if self._handle(command, context, browser, label):
+                            if self._handle(command, context, label):
                                 finished = True
                                 break
                             deadline = time.monotonic() + SETUP_IDLE_LIMIT_SECONDS
@@ -496,7 +495,7 @@ def create_problem_report(payload: ReportRequest):
 def reset_application():
     """Stops all background trackers, deletes the SQLite database history, state cookies, configs, and screenshots."""
     with tracker_lock:
-        for provider, event in list(stop_events.items()):
+        for event in list(stop_events.values()):
             event.set()
         for thread in list(active_threads.values()):
             thread.join(timeout=8)

@@ -1,6 +1,5 @@
 import os
 import shutil
-import sqlite3
 import json
 
 def reset_all():
