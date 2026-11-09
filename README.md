@@ -277,3 +277,12 @@ This provides a complete interactive sandbox where you can test all endpoints, c
   * `POST /tracker/{provider}/stop`: Triggers a graceful shutdown event to terminate the daemon thread.
   * `GET /tracker/{provider}/status`: Tells you if the thread is alive and when it last ran.
 
+## Running the Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+pytest --cov --cov-config=.coveragerc --cov-report=term-missing
+```
+
+The tests use a fake copy of the sites and a temporary data folder, so they never contact Blinkit or Zepto or change your settings.

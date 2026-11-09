@@ -74,8 +74,12 @@ def _is_local_name(hostname: str) -> bool:
     return "." not in hostname or hostname.endswith((".local", ".lan", ".home", ".internal"))
 
 
-def _host_of(value: str) -> str:
-    return (urllib.parse.urlsplit(f"//{value}").hostname or "").lower()
+def _hostname(url: str) -> str:
+    """The lowercase hostname, or an empty string for anything malformed."""
+    try:
+        return (urllib.parse.urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def _request_is_allowed(host_header: str, origin: Optional[str]) -> bool:
@@ -84,7 +88,9 @@ def _request_is_allowed(host_header: str, origin: Optional[str]) -> bool:
     The mobile app sends no Origin. A dotted Host name is refused because a public
     domain can be re-pointed at this machine to get past same-origin checks.
     """
-    host = _host_of(host_header)
+    host = _hostname(f"//{host_header}")
+    if not host:
+        return False
     try:
         ipaddress.ip_address(host)
     except ValueError:
@@ -92,7 +98,9 @@ def _request_is_allowed(host_header: str, origin: Optional[str]) -> bool:
             return False
     if not origin:
         return True
-    origin_host = (urllib.parse.urlsplit(origin).hostname or "").lower()
+    origin_host = _hostname(origin)
+    if not origin_host:
+        return False  # "null" is what a sandboxed frame on any website sends.
     if origin_host == host:
         return True
     try:
@@ -260,7 +268,7 @@ def background_tracker_worker(provider: str, stop_event: threading.Event, metada
                 wait_seconds = core.check_interval_minutes(config) * 60 + random.randint(-30, 30)
             except core.BlockedError as e:
                 metadata["block_message"] = e.user_message
-                core.alert_blocked(provider, tracker.load_config(), e)
+                core.alert_blocked(provider, config, e)
                 continue
             except Exception as e:
                 failures += 1
@@ -454,7 +462,7 @@ def get_active_setup(provider: str) -> Optional[SetupSession]:
 @app.get("/", include_in_schema=False)
 def serve_dashboard():
     """Serves the Unified Dashboard Web UI."""
-    return FileResponse(core.path("index.html"), headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+    return FileResponse(os.path.join(core.BASE_DIR, "index.html"), headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
 @app.get("/health", tags=["General"])

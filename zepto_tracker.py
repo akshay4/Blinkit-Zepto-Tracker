@@ -26,6 +26,7 @@ import tracker_core as core
 # Try importing Rich for nice formatting, fallback to print if not installed yet
 try:
     from rich.console import Console
+    from rich.markup import escape
     from rich.table import Table
     from rich import box
     console = Console()
@@ -37,6 +38,9 @@ except ImportError:
             print(*args, **kwargs)
     console = SimpleConsole()
 
+    def escape(text):
+        return text
+
 PROVIDER = "zepto"
 DB_FILE = core.path("tracker.db")
 STATE_FILE = core.path("zepto_state.json")
@@ -46,6 +50,11 @@ OUT_OF_STOCK_PATTERNS = ['out of stock', 'notify me', 'temporarily unavailable',
 
 # Ensure screenshots directory exists
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+
+def log_plain(message):
+    """Logs text from outside this program, where a [ must not be read as Rich markup."""
+    console.log(escape(message))
 
 
 def init_db():
@@ -69,12 +78,12 @@ def add_to_config(name, url):
         config = load_config()
         products = config.get("products", [])
         if any(p["url"] == url for p in products):
-            console.print(f"[yellow]Product is already being tracked:[/] [cyan]{name}[/]")
+            console.print(f"[yellow]Product is already being tracked:[/] [cyan]{escape(name)}[/]")
             return
         products.append({"name": name, "url": url})
         config["products"] = products
         core.save_config(CONFIG_FILE, config)
-    console.print(f"[bold green]Success![/] Added [cyan]{name}[/] to your tracking list.")
+    console.print(f"[bold green]Success![/] Added [cyan]{escape(name)}[/] to your tracking list.")
 
 
 def parse_selection_input(input_str, max_val):
@@ -160,7 +169,7 @@ def _is_broad_product_link(href):
 def search_products(page, query):
     """Searches for products and returns parsed results. Raises core.BlockedError if refused."""
     search_url = f"https://www.zepto.com/search?query={urllib.parse.quote(query)}"
-    console.log(f"Searching for [cyan]'{query}'[/] (location-aware)...")
+    console.log(f"Searching for [cyan]'{escape(query)}'[/] (location-aware)...")
 
     found_items = []
     try:
@@ -188,7 +197,7 @@ def search_products(page, query):
     except core.BlockedError:
         raise
     except Exception as e:
-        console.log(f"[red]Error during search execution:[/] {core.scrub(str(e))[:200]}", style="red")
+        console.log(f"[red]Error during search execution:[/] {escape(core.scrub(str(e))[:200])}", style="red")
         core.record_incident(PROVIDER, "page_error", "search", url=search_url, snippet=str(e))
 
     return found_items
@@ -220,7 +229,7 @@ def run_add_item():
         if not name:
             name_part = url.split("/pvid/")[0].split("/")[-1].replace("-", " ").title()
             name = name_part
-            console.print(f"Using auto-generated name: [cyan]{name}[/]")
+            console.print(f"Using auto-generated name: [cyan]{escape(name)}[/]")
             
         add_to_config(name, url)
         return
@@ -257,7 +266,7 @@ def run_add_item():
         limit_val = min(len(found_items), 15)
         for index, item in enumerate(found_items[:limit_val], start=1):
             status_style = "green" if item["status"] == "IN_STOCK" else "red"
-            table.add_row(str(index), item["name"], item["details"], f"[{status_style}]{item['status']}[/]")
+            table.add_row(str(index), escape(item["name"]), escape(item["details"]), f"[{status_style}]{item['status']}[/]")
             
         console.print(table)
         
@@ -304,7 +313,7 @@ def run_keyword_check_wizard():
     console.print("\n[bold cyan]=======================================================[/]")
     console.print("[bold cyan]         REVIEW NEW PRODUCTS FOR TRACKED KEYWORDS      [/]")
     console.print("[bold cyan]=======================================================[/]\n")
-    console.print(f"Scanning for keywords: [cyan]{', '.join(keywords)}[/]...\n")
+    console.print(f"Scanning for keywords: [cyan]{escape(', '.join(keywords))}[/]...\n")
 
     from playwright.sync_api import sync_playwright
     
@@ -347,7 +356,7 @@ def run_keyword_check_wizard():
             for term in [" ADD", "ADD", " OFF"]:
                 if full_name.endswith(term):
                     full_name = full_name[:-len(term)].strip()
-            table.add_row(str(index), item["keyword"], full_name, item["details"], f"[{status_style}]{item['status']}[/]")
+            table.add_row(str(index), escape(item["keyword"]), escape(full_name), escape(item["details"]), f"[{status_style}]{item['status']}[/]")
             
         console.print(table)
         
@@ -383,7 +392,7 @@ def send_telegram_notification(product_name, old_status, new_status, url, telegr
         f"*Status changed:* `{old_status or 'NEW'}` ➡️ `{new_status}`\n\n"
         f"[View Product on Zepto]({url})"
     )
-    core.send_telegram(telegram_config, text, console.log, disable_preview=False)
+    core.send_telegram(telegram_config, text, log_plain, disable_preview=False)
 
 
 def send_desktop_notification(product_name, new_status):
@@ -394,12 +403,12 @@ def send_desktop_notification(product_name, new_status):
         title, message = "🛒 Zepto Stock Alert!", f"'{product_name}' has gone OUT OF STOCK."
     else:
         title, message = "🔍 New Products Found!", f"{product_name}: new matching items were found."
-    core.send_desktop(title, message, "Zepto Stock Tracker", console.log)
+    core.send_desktop(title, message, "Zepto Stock Tracker", log_plain)
 
 
 def trigger_notifications(product_name, old_status, new_status, url, config):
     """Dispatches notifications across configured channels."""
-    console.log(f"[bold green]🔔 Stock Alert![/] [yellow]{product_name}[/] changed from [red]{old_status or 'NEW'}[/] to [green]{new_status}[/]")
+    console.log(f"[bold green]🔔 Stock Alert![/] [yellow]{escape(product_name)}[/] changed from [red]{old_status or 'NEW'}[/] to [green]{new_status}[/]")
     
     if config.get("desktop_notifications"):
         send_desktop_notification(product_name, new_status)
@@ -433,7 +442,7 @@ def run_setup():
             kind = core.classify_block(core.inspect_page(page), response.status if response else None)
         except Exception as e:
             kind = None
-            console.print(f"[yellow]The page did not finish loading:[/] {core.scrub(str(e))[:200]}")
+            console.print(f"[yellow]The page did not finish loading:[/] {escape(core.scrub(str(e))[:200])}")
         if kind and kind != "challenge":
             error = core.register_block(page, PROVIDER, kind, "location setup", core.inspect_page(page), None)
             console.print(f"\n[bold red]{error.user_message}[/]")
@@ -444,8 +453,11 @@ def run_setup():
         console.print("\n[bold yellow]Browser is open. Go ahead and select your location on Zepto.[/]")
         while True:
             input("Press Enter here AFTER you have successfully set your location in the browser...")
+            if not context.pages:
+                console.print("[yellow]The browser window was closed, so nothing was saved.[/]")
+                return
             try:
-                core.save_session(context, page, PROVIDER, STATE_FILE, label)
+                core.save_session(context, context.pages[-1], PROVIDER, STATE_FILE, label)
                 break
             except core.SetupRefused as e:
                 console.print(f"[bold red]Not saved:[/] {e}")
@@ -456,7 +468,7 @@ def run_setup():
 
 def check_product_stock(page, product):
     """Returns the product's status. Raises core.BlockedError if the site refused the page."""
-    return core.check_stock(page, PROVIDER, product, OUT_OF_STOCK_PATTERNS, SCREENSHOT_DIR, console.log)
+    return core.check_stock(page, PROVIDER, product, OUT_OF_STOCK_PATTERNS, SCREENSHOT_DIR, log_plain)
 
 
 def run_tracker(check_once=False):
@@ -477,7 +489,7 @@ def run_tracker(check_once=False):
                 raise
             console.print(f"[bold red]{e.user_message}[/]")
             console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
-            core.alert_blocked(PROVIDER, load_config(), e, console.log)
+            core.alert_blocked(PROVIDER, load_config(), e, log_plain)
 
 
 def _tracker_loop(check_once=False):
@@ -550,7 +562,7 @@ def _tracker_loop(check_once=False):
                 for r in results:
                     status_style = "green" if r["status"] == "IN_STOCK" else ("red" if r["status"] == "OUT_OF_STOCK" else "yellow")
                     table.add_row(
-                        r["name"], 
+                        escape(r["name"]),
                         f"[{status_style}]{r['status']}[/]", 
                         r["prev_status"], 
                         r["time"]
@@ -576,7 +588,7 @@ def _tracker_loop(check_once=False):
                         if product_url not in already_tracked_urls:
                             if product_url not in notified_keyword_products:
                                 notified_keyword_products.add(product_url)
-                                console.log(f"[bold yellow]New product matching keyword '{keyword}' found:[/] {item['name']}")
+                                console.log(f"[bold yellow]New product matching keyword '{escape(keyword)}' found:[/] {escape(item['name'])}")
                                 new_products_found = True
                 
                 if new_products_found:
@@ -598,7 +610,7 @@ def _tracker_loop(check_once=False):
                         "🔍 *Zepto Keyword Discovery Alert* 🔍\n\n"
                         "New items matching your tracked keywords have been detected!\n\n"
                         "Run `python zepto_tracker.py --keywords` in your terminal to review and add them.",
-                        console.log,
+                        log_plain,
                     )
                                 
             if check_once:
@@ -634,4 +646,7 @@ if __name__ == "__main__":
     except core.BlockedError as e:
         console.print(f"[bold red]{e.user_message}[/]")
         console.print("To send a report, run: [bold green]python tracker_core.py --report[/]")
+        sys.exit(1)
+    except core.ConfigError as e:
+        console.print(f"[bold red]Error:[/] {escape(str(e))}")
         sys.exit(1)

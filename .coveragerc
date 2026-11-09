@@ -1,0 +1,13 @@
+[run]
+source =
+    api
+    tracker_core
+    blinkit_tracker
+    zepto_tracker
+    reset_tracker
+concurrency = thread,greenlet
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if sys.platform == 'win32':
