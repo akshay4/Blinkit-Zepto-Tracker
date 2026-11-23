@@ -11,3 +11,4 @@ screenshots/
 .coverage
 .pytest_cache/
 htmlcov/
+.venv/

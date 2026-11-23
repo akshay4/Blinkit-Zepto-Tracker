@@ -46,7 +46,7 @@ This tool solves this by simulating a real user at your exact location, constant
 
 ## Prerequisites & Setup
 
-Ensure you have **Python 3.8+** installed.
+Ensure you have **Python 3.9+** installed.
 
 ---
 
@@ -54,17 +54,37 @@ Ensure you have **Python 3.8+** installed.
 
 If you are on Windows, simply double-click the **[run_dashboard.bat](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/run_dashboard.bat)** script in the root directory. 
 This script will automatically:
-1. Check for Python and upgrade `pip`.
-2. Install all required dependencies.
-3. Install Playwright's Chromium browser.
-4. Launch the FastAPI server and automatically open the Dashboard in your default browser at `http://localhost:8000`.
+1. Check for Python.
+2. Run the [pre-flight check](#-pre-flight-check), installing any missing dependencies and Playwright's Chromium browser.
+3. Launch the FastAPI server and automatically open the Dashboard in your default browser at `http://localhost:8000`.
 
 ### 🍎 Quick Start (macOS One-Click Setup)
 
 If you are on a Mac, you can double-click **[run_dashboard.sh](file:///d:/Antigravity/Blinkit%20Zepto%20Tracker/run_dashboard.sh)** (or run `./run_dashboard.sh` in the Terminal).
-This script will automatically install dependencies, download the Playwright browser, and launch the dashboard server at `http://localhost:8000`.
+This script runs the [pre-flight check](#-pre-flight-check), installs anything missing (dependencies and the Playwright browser), and launches the dashboard server at `http://localhost:8000`.
 
 *Note: You may need to run `chmod +x run_dashboard.sh reset_tracker.sh` in Terminal once to give them execution permission.*
+
+### ✅ Pre-flight Check
+
+Before starting, the launchers run `preflight.py`, which checks everything the tracker needs and explains how to fix anything missing. You can also run it yourself at any time:
+
+```bash
+python3 preflight.py            # check and report (use "python" on Windows)
+python3 preflight.py --fix      # also install missing packages and the Playwright browser
+python3 preflight.py --dashboard  # also check that port 8000 is free
+```
+
+It checks:
+* **Python** is 3.9 or newer, and every package in `requirements.txt` is installed at the right version.
+* **Browsers**: Playwright's Chromium starts (used to check stock), and Google Chrome or Microsoft Edge is available (used for location setup).
+* **Data folder** can be written to.
+* **Blinkit and Zepto**: the config files are valid JSON, your delivery location is set up, the browser the location was saved with still starts, products or keywords are being tracked, and Telegram details are filled in if Telegram is on.
+* **Desktop notifications** can be shown (on macOS this needs `pyobjus`, which `requirements.txt` installs).
+* **Network**: Blinkit, Zepto and (if used) Telegram are reachable, and not blocked by a DNS ad blocker such as Pi-hole.
+* **Dashboard port** 8000 is free (with `--dashboard`).
+
+Problems marked **FAIL** stop the launcher; **WARN** items let it start. The check uses only Python's standard library, so it works before anything is installed. Use `--offline` to skip the network checks.
 
 ### ♻️ Resetting & Starting Fresh (One-Click Reset)
 
@@ -90,7 +110,7 @@ While **iPadOS does not support running Python background servers or Playwright 
 ### Manual Setup (macOS / Linux / Windows CLI)
 
 #### 1. Install Dependencies
-Install the required packages using the `requirements.txt`:
+Install the required packages using the `requirements.txt` (or run `python3 preflight.py --fix` to install dependencies and the browser in one go):
 ```bash
 pip install -r requirements.txt
 ```
