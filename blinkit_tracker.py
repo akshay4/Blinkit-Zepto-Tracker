@@ -25,11 +25,10 @@ import tracker_core as core
 
 # Try importing Rich for nice formatting, fallback to print if not installed yet
 try:
-    from rich.console import Console
     from rich.markup import escape
     from rich.table import Table
     from rich import box
-    console = Console()
+    console = core.LoggedConsole()
 except ImportError:
     class SimpleConsole:
         def log(self, msg, style=None):

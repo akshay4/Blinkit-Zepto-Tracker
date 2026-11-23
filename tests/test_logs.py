@@ -226,3 +226,61 @@ def test_old_bundles_are_not_packed_into_new_ones():
     with open(os.path.join(core.DIAG_DIR, "logs-to-send.zip"), "wb") as f:
         f.write(b"old")
     assert not [n for n in open_zip(core.build_log_bundle()).namelist() if n.endswith(".zip")]
+
+
+# --- Rich output in the log (the trackers print through core.LoggedConsole) ---
+
+def logged_lines():
+    return [line.split(" ", 1)[1] for line in read_log().splitlines()]
+
+
+def narrow_console(monkeypatch):
+    """A colour terminal 40 columns wide with log capture installed, as when the app runs."""
+    terminal = Stream()
+    monkeypatch.setattr(sys, "stdout", core.LogTee(terminal))
+    return core.LoggedConsole(width=40, force_terminal=True, color_system="truecolor"), terminal
+
+
+def test_tee_strips_terminal_links():
+    core.LogTee(Stream()).write("\x1b]8;id=1;file:///x/app.py\x1b\\app.py\x1b]8;;\x1b\\:12 and \x1b]8;;http://a\x07b\x1b]8;;\x07\n")
+    assert logged_lines() == ["app.py:12 and b"]
+
+
+def test_console_log_is_one_clean_unwrapped_line(monkeypatch):
+    console, terminal = narrow_console(monkeypatch)
+    console.log("Success! Session state saved to /Users/someone/Desktop/blinkit/Blinkit-Zepto-Tracker/state.json")
+    assert "\x1b" in terminal.getvalue() and "test_logs.py" in terminal.getvalue()
+    assert logged_lines() == ["Success! Session state saved to <home>/Desktop/blinkit/Blinkit-Zepto-Tracker/state.json"]
+
+
+def test_secrets_are_hidden_even_when_the_terminal_wraps_them(monkeypatch):
+    console, _ = narrow_console(monkeypatch)
+    console.log(f"Sending via {'x' * 30} 10.20.30.40 with bot{SECRET_TOKEN} for a@b.co")
+    log = read_log()
+    assert "10.20.30.40" not in log and "SECRET" not in log and "a@b.co" not in log
+    assert logged_lines() == [f"Sending via {'x' * 30} <ip> with bot<token> for <email>"]
+
+
+def test_console_print_logs_markup_and_tables_once(monkeypatch):
+    from rich.table import Table
+    console, _ = narrow_console(monkeypatch)
+    console.print("[bold green]Success![/] Added [cyan]Supra[/] to your tracking list.")
+    table = Table(title="Status")
+    table.add_column("Product")
+    table.add_row("Supra")
+    console.print(table)
+    lines = logged_lines()
+    assert lines[0] == "Success! Added Supra to your tracking list."
+    assert sum("Supra" in line for line in lines) == 2 and any("Product" in line for line in lines)
+    assert "\x1b" not in read_log()
+
+
+def test_console_writes_nothing_without_log_capture(monkeypatch):
+    monkeypatch.setattr(sys, "stdout", Stream())
+    core.LoggedConsole(force_terminal=True).log("hello")
+    assert not os.path.exists(core.LOG_FILE)
+
+
+def test_trackers_use_the_logged_console():
+    import zepto_tracker as zepto
+    assert isinstance(blinkit.console, core.LoggedConsole) and isinstance(zepto.console, core.LoggedConsole)

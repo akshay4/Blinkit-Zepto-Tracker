@@ -656,7 +656,29 @@ def alert_blocked(provider, config, error, log=print):
 
 # --- Log file ---
 
-ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# Colour codes (ESC [ ... m) and terminal links (ESC ] 8 ; ... ESC \), which Rich
+# adds for its clickable file:line column.
+ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+# Wide enough that log lines are never wrapped, which would split a path or a
+# token across lines and stop scrub() from hiding it.
+LOG_RENDER_WIDTH = 4000
+
+_capture = threading.local()
+
+
+@contextmanager
+def log_capture_paused():
+    """Stops LogTee copying this thread's output, for text that is logged another way."""
+    _capture.paused = getattr(_capture, "paused", 0) + 1
+    try:
+        yield
+    finally:
+        _capture.paused -= 1
+
+
+def log_capture_installed():
+    return isinstance(sys.stdout, LogTee)
 
 
 def write_log_line(line):
@@ -678,6 +700,8 @@ class LogTee:
 
     def write(self, text):
         written = self._stream.write(text)
+        if getattr(_capture, "paused", 0):
+            return written
         try:
             with self._lock:
                 self._buffer += ANSI_CODES.sub("", text)
@@ -703,6 +727,47 @@ def install_log_capture():
     sys.stdout = LogTee(sys.stdout)
     sys.stderr = LogTee(sys.stderr)
     write_log_line(f"--- Started app {APP_VERSION} on {platform.system()} {platform.release()}, Python {platform.python_version()} ---")
+
+
+try:
+    from rich.console import Console as _RichConsole
+except ImportError:  # The trackers fall back to plain print() without Rich.
+    _RichConsole = None
+
+if _RichConsole is not None:
+    class LoggedConsole(_RichConsole):
+        """A Rich console whose output is logged as clean text.
+
+        The terminal still gets colours, the time column and clickable file
+        links. The log file gets the same text once, without escape codes,
+        padding, Rich's own timestamp, or wrapping at the terminal's width.
+        """
+
+        def log(self, *objects, _stack_offset=1, **kwargs):
+            with log_capture_paused():
+                super().log(*objects, _stack_offset=_stack_offset + 1, **kwargs)
+            self._log_copy("log", objects, kwargs)
+
+        def print(self, *objects, **kwargs):
+            with log_capture_paused():
+                super().print(*objects, **kwargs)
+            self._log_copy("print", objects, kwargs)
+
+        def _log_copy(self, method, objects, kwargs):
+            if not log_capture_installed():
+                return
+            try:
+                buffer = io.StringIO()
+                plain = _RichConsole(
+                    file=buffer, width=LOG_RENDER_WIDTH, color_system=None, no_color=True,
+                    force_terminal=False, highlight=False, log_time=False, log_path=False,
+                )
+                getattr(plain, method)(*objects, **kwargs)
+                for line in buffer.getvalue().splitlines():
+                    if line.strip():
+                        write_log_line(ANSI_CODES.sub("", line).rstrip())
+            except Exception:
+                pass  # Logging must never stop the tracker.
 
 
 # --- Incidents and reports ---
